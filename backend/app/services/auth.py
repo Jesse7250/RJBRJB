@@ -1,0 +1,91 @@
+"""认证与授权服务
+
+提供：
+- 密码哈希与校验（bcrypt）
+- JWT token 生成与解析
+- 可选的 FastAPI 依赖 `get_current_user`
+
+TODO:
+- [待完成] 接入 refresh token 机制
+- [待完成] 增加 token 黑名单/登出
+"""
+from datetime import datetime, timedelta, timezone
+from typing import Optional
+
+import bcrypt
+from fastapi import Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
+from jose import JWTError, jwt
+
+from app.core.config import get_settings
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return bcrypt.checkpw(
+        plain_password.encode("utf-8"), hashed_password.encode("utf-8")
+    )
+
+
+def get_password_hash(password: str) -> str:
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    settings = get_settings()
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.now(timezone.utc) + expires_delta
+    else:
+        expire = datetime.now(timezone.utc) + timedelta(hours=24)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm="HS256")
+    return encoded_jwt
+
+
+def decode_access_token(token: str) -> Optional[dict]:
+    settings = get_settings()
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+        return payload
+    except JWTError:
+        return None
+
+
+async def get_current_user(token: Optional[str] = Depends(oauth2_scheme)) -> Optional[str]:
+    """获取当前用户 username
+
+    当接口需要登录时，使用 `get_current_user` 并判断返回值是否为 None。
+    """
+    if token is None:
+        return None
+    payload = decode_access_token(token)
+    if payload is None:
+        return None
+    username: Optional[str] = payload.get("sub")
+    return username
+
+
+async def require_user(token: Optional[str] = Depends(oauth2_scheme)) -> str:
+    """强制要求登录的依赖"""
+    if token is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="请先登录",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    payload = decode_access_token(token)
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="登录已过期或 token 无效",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    username: Optional[str] = payload.get("sub")
+    if username is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token 无效",
+        )
+    return username
