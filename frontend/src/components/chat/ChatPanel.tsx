@@ -1,21 +1,28 @@
-import { Send, Bot, User, Sparkles, MapPin, Clock, ArrowRight, Play, CheckCircle } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { AnimatePresence, motion } from 'framer-motion'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import rehypeHighlight from 'rehype-highlight'
+import {
+  Send,
+  Bot,
+  User,
+  Sparkles,
+  MapPin,
+  Clock,
+  ArrowRight,
+  Play,
+  CheckCircle,
+  Lightbulb,
+} from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
+import { GlassCard } from '@/components/ui/glass-card'
+import { IconBox } from '@/components/ui/icon-box'
 import { sessionApi, type AgentResponse, type SessionResponse } from '@/services/api'
 import { useSandboxStore } from '@/stores/sandboxStore'
-
-/**
- * TODO:
- * - [已完成] 支持 Markdown 渲染助手消息
- * - [已完成] 实现流式输出效果（SSE）
- * - [已完成] 显示 Agent 名称与头像
- * - [待完成] 根据 response_type 显示不同 UI（路径规划、资源卡片、辅导提问等）
- * - [待完成] 支持代码消息类型与一键运行
- */
+import { cn } from '@/lib/utils'
 
 interface Props {
   session: SessionResponse
@@ -28,6 +35,12 @@ interface Message {
   isStreaming?: boolean
   data?: AgentResponse
 }
+
+const QUICK_PROMPTS = [
+  '我想学习 Python 变量与赋值',
+  '帮我规划 Python 学习路径',
+  '出一道循环结构的练习题',
+]
 
 function parseSSE(line: string): any | null {
   if (!line.startsWith('data: ')) return null
@@ -43,34 +56,44 @@ export function ChatPanel({ session }: Props) {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: 'assistant',
-      content: '你好！我是智学蜂巢学习助手。告诉我你想学习哪个 Python 知识点？',
+      content:
+        '你好！我是智学蜂巢学习助手。告诉我你想学习哪个 Python 知识点，或者让我为你规划一条学习路径。',
       agentName: 'Profiler',
     },
   ])
   const [loading, setLoading] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const setSandboxCode = useSandboxStore((s) => s.setCode)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  const sendMessage = async () => {
-    if (!input.trim()) return
+  const adjustTextareaHeight = () => {
+    const el = textareaRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`
+  }
 
-    const userMsg = input.trim()
+  const sendMessage = async (text?: string) => {
+    const messageText = text ?? input
+    if (!messageText.trim()) return
+
     setInput('')
-    setMessages((prev) => [...prev, { role: 'user', content: userMsg }])
+    if (textareaRef.current) textareaRef.current.style.height = 'auto'
+
+    setMessages((prev) => [...prev, { role: 'user', content: messageText.trim() }])
     setLoading(true)
 
-    // 先放置一个正在思考的占位消息
     setMessages((prev) => [
       ...prev,
       { role: 'assistant', content: '', agentName: '...', isStreaming: true },
     ])
 
     try {
-      const response = await sessionApi.chatStream(session.session_id, userMsg)
+      const response = await sessionApi.chatStream(session.session_id, messageText.trim())
       const reader = response.body?.getReader()
       if (!reader) throw new Error('无法建立流式连接')
 
@@ -132,7 +155,6 @@ export function ChatPanel({ session }: Props) {
         }
       }
 
-      // 如果流结束但没有收到 complete，fallback 显示最后内容
       if (!finalResponse) {
         setMessages((prev) => {
           const last = prev[prev.length - 1]
@@ -155,10 +177,15 @@ export function ChatPanel({ session }: Props) {
     }
   }
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      sendMessage()
+    }
+  }
+
   const triggerGenerateResource = (concept: string) => {
-    window.dispatchEvent(
-      new CustomEvent('eduhive:generate-resource', { detail: { concept } })
-    )
+    window.dispatchEvent(new CustomEvent('eduhive:generate-resource', { detail: { concept } }))
   }
 
   const openSandboxWithCode = (code: string) => {
@@ -166,161 +193,326 @@ export function ChatPanel({ session }: Props) {
     window.dispatchEvent(new CustomEvent('eduhive:open-sandbox'))
   }
 
-  const renderAssistantContent = (msg: Message) => {
-    if (msg.isStreaming && !msg.content) {
-      return <span className="animate-pulse">正在思考...</span>
-    }
+  const lastAssistant = messages.filter((m) => m.role === 'assistant' && !m.isStreaming).pop()
 
-    const data = msg.data
-    const responseType = data?.response_type
-
-    if (responseType === 'path_plan' && typeof data?.content === 'object') {
-      const content = data.content as {
-        message?: string
-        target_concept?: string
-        suggested_path?: string[]
-        estimated_minutes?: number
-        next_action?: string
-      }
-      const path = content.suggested_path || []
-      return (
-        <div className="space-y-3">
-          <p className="whitespace-pre-wrap">{content.message || msg.content}</p>
-          {path.length > 0 && (
-            <div className="bg-background/60 rounded-lg p-3 space-y-2">
-              <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                <MapPin className="w-3.5 h-3.5" />
-                推荐学习路径
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {path.map((step, i) => (
-                  <span key={i} className="flex items-center gap-2">
-                    <Badge variant="secondary" className="text-xs">{step}</Badge>
-                    {i < path.length - 1 && <ArrowRight className="w-3 h-3 text-muted-foreground" />}
-                  </span>
-                ))}
-              </div>
-              {content.estimated_minutes && (
-                <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                  <Clock className="w-3 h-3" />
-                  预计 {content.estimated_minutes} 分钟
-                </div>
-              )}
-            </div>
-          )}
-          {content.target_concept && content.next_action === 'generate_resource' && (
-            <Button
-              size="sm"
-              className="gap-1.5"
-              onClick={() => triggerGenerateResource(content.target_concept!)}
+  return (
+    <GlassCard className="flex h-[calc(100vh-12rem)] min-h-[520px] flex-col overflow-hidden" hover={false}>
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-slate-100 bg-gradient-to-r from-indigo-50/50 to-violet-50/50 px-5 py-4">
+        <div className="flex items-center gap-3">
+          <IconBox icon={Sparkles} variant="indigo" size="sm" />
+          <div>
+            <h3 className="text-base font-bold text-slate-900">AI 学习对话</h3>
+            <p className="text-xs text-slate-500">多智能体实时协作辅导</p>
+          </div>
+        </div>
+        <div className="hidden items-center gap-2 sm:flex">
+          {['Profiler', 'Planner', 'Tutor'].map((agent) => (
+            <Badge
+              key={agent}
+              variant="secondary"
+              className="border-0 bg-white/70 text-xs font-medium text-slate-600 backdrop-blur-sm"
             >
-              <Sparkles className="w-3.5 h-3.5" />
-              生成「{content.target_concept}」学习资源
-            </Button>
+              {agent}
+            </Badge>
+          ))}
+        </div>
+      </div>
+
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto px-5 py-5">
+        <div className="space-y-5">
+          <AnimatePresence initial={false}>
+            {messages.map((msg, idx) => (
+              <MessageBubble
+                key={idx}
+                msg={msg}
+                index={idx}
+                onRunCode={openSandboxWithCode}
+                onGenerateResource={triggerGenerateResource}
+              />
+            ))}
+          </AnimatePresence>
+          <div ref={bottomRef} />
+        </div>
+      </div>
+
+      {/* Quick prompts */}
+      <AnimatePresence>
+        {lastAssistant && !loading && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 4 }}
+            className="flex flex-wrap gap-2 border-t border-slate-100 bg-slate-50/50 px-5 py-3"
+          >
+            {QUICK_PROMPTS.map((prompt) => (
+              <button
+                key={prompt}
+                onClick={() => sendMessage(prompt)}
+                className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm transition-all hover:-translate-y-0.5 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 hover:shadow-md"
+              >
+                <Lightbulb className="h-3 w-3" />
+                {prompt}
+              </button>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Input */}
+      <div className="border-t border-slate-100 p-4">
+        <div className="flex gap-2 rounded-2xl border border-slate-200 bg-white/80 p-2 shadow-sm backdrop-blur-sm transition-all focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:shadow-md">
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={(e) => {
+              setInput(e.target.value)
+              adjustTextareaHeight()
+            }}
+            onKeyDown={handleKeyDown}
+            disabled={loading}
+            rows={1}
+            placeholder="输入你想学习的 Python 知识点，按 Enter 发送，Shift + Enter 换行..."
+            className="max-h-40 min-h-[44px] flex-1 resize-none bg-transparent px-3 py-2.5 text-sm outline-none placeholder:text-slate-400"
+          />
+          <Button
+            onClick={() => sendMessage()}
+            disabled={loading || !input.trim()}
+            className="h-auto rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-4 shadow-lg shadow-indigo-500/25 transition-transform active:scale-95 disabled:opacity-60"
+          >
+            <Send className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+    </GlassCard>
+  )
+}
+
+function MessageBubble({
+  msg,
+  index,
+  onRunCode,
+  onGenerateResource,
+}: {
+  msg: Message
+  index: number
+  onRunCode: (code: string) => void
+  onGenerateResource: (concept: string) => void
+}) {
+  const isUser = msg.role === 'user'
+  const isSystem = msg.role === 'system'
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 16, scale: 0.98 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ duration: 0.35, delay: index * 0.03, ease: [0.16, 1, 0.3, 1] }}
+      className={cn('flex gap-3', isUser ? 'justify-end' : 'justify-start')}
+    >
+      {!isUser && (
+        <div className="shrink-0 pt-1">
+          {isSystem ? (
+            <IconBox icon={Sparkles} variant="amber" size="sm" />
+          ) : (
+            <IconBox icon={Bot} variant="indigo" size="sm" />
           )}
         </div>
-      )
-    }
+      )}
 
-    if (responseType === 'code' && typeof data?.content === 'object') {
-      const content = data.content as { code?: string; message?: string }
-      return (
-        <div className="space-y-2">
-          <p className="whitespace-pre-wrap">{content.message || msg.content}</p>
-          {content.code && (
-            <div className="relative group">
-              <pre className="bg-slate-950 text-slate-50 p-3 rounded-lg text-xs overflow-x-auto">
-                <code>{content.code}</code>
-              </pre>
+      <div
+        className={cn(
+          'max-w-[85%] rounded-2xl px-4 py-3 text-sm shadow-sm sm:max-w-[75%]',
+          isUser
+            ? 'rounded-tr-sm bg-gradient-to-br from-indigo-600 to-violet-700 text-white'
+            : isSystem
+            ? 'rounded-tl-sm border border-amber-200/80 bg-amber-50/90 text-amber-900'
+            : 'rounded-tl-sm border border-slate-200/80 bg-white/90 text-slate-800'
+        )}
+      >
+        {!isUser && !isSystem && (
+          <div className="mb-1.5 flex items-center gap-2 text-xs text-slate-500">
+            <Bot className="h-3.5 w-3.5" />
+            <span className="font-semibold">{msg.agentName || 'Assistant'}</span>
+          </div>
+        )}
+        {isUser && (
+          <div className="mb-1.5 flex items-center justify-end gap-1.5 text-xs text-white/80">
+            <span className="font-semibold">你</span>
+            <User className="h-3.5 w-3.5" />
+          </div>
+        )}
+
+        <MessageContent
+          msg={msg}
+          onRunCode={onRunCode}
+          onGenerateResource={onGenerateResource}
+        />
+      </div>
+
+      {isUser && (
+        <div className="shrink-0 pt-1">
+          <IconBox icon={User} variant="violet" size="sm" />
+        </div>
+      )}
+    </motion.div>
+  )
+}
+
+function MessageContent({
+  msg,
+  onRunCode,
+  onGenerateResource,
+}: {
+  msg: Message
+  onRunCode: (code: string) => void
+  onGenerateResource: (concept: string) => void
+}) {
+  if (msg.isStreaming && !msg.content) {
+    return (
+      <div className="flex items-center gap-2 text-slate-500">
+        <span className="typing-dot" />
+        <span className="typing-dot" />
+        <span className="typing-dot" />
+        <span className="ml-1 text-xs">正在思考...</span>
+      </div>
+    )
+  }
+
+  const data = msg.data
+  const responseType = data?.response_type
+
+  if (responseType === 'path_plan' && typeof data?.content === 'object') {
+    const content = data.content as {
+      message?: string
+      target_concept?: string
+      suggested_path?: string[]
+      estimated_minutes?: number
+      next_action?: string
+    }
+    const path = content.suggested_path || []
+    return (
+      <div className="space-y-3">
+        <div className="prose prose-sm max-w-none text-slate-700">
+          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+            {content.message || msg.content}
+          </ReactMarkdown>
+        </div>
+        {path.length > 0 && (
+          <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-3">
+            <div className="mb-2 flex items-center gap-2 text-xs font-bold text-indigo-700">
+              <MapPin className="h-3.5 w-3.5" />
+              推荐学习路径
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {path.map((step, i) => (
+                <span key={i} className="flex items-center gap-2">
+                  <Badge
+                    variant="secondary"
+                    className="border-0 bg-white text-xs font-semibold text-slate-700 shadow-sm"
+                  >
+                    {step}
+                  </Badge>
+                  {i < path.length - 1 && <ArrowRight className="h-3 w-3 text-indigo-400" />}
+                </span>
+              ))}
+            </div>
+            {content.estimated_minutes && (
+              <div className="mt-2 flex items-center gap-1.5 text-xs text-slate-500">
+                <Clock className="h-3 w-3" />
+                预计 {content.estimated_minutes} 分钟
+              </div>
+            )}
+          </div>
+        )}
+        {content.target_concept && content.next_action === 'generate_resource' && (
+          <Button
+            size="sm"
+            className="gap-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 shadow-lg shadow-indigo-500/25 transition-transform hover:scale-[1.02] active:scale-95"
+            onClick={() => onGenerateResource(content.target_concept!)}
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            生成「{content.target_concept}」学习资源
+          </Button>
+        )}
+      </div>
+    )
+  }
+
+  if (responseType === 'code' && typeof data?.content === 'object') {
+    const content = data.content as { code?: string; message?: string }
+    return (
+      <div className="space-y-2">
+        <div className="prose prose-sm max-w-none text-slate-700">
+          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+            {content.message || msg.content}
+          </ReactMarkdown>
+        </div>
+        {content.code && (
+          <div className="group relative overflow-hidden rounded-xl bg-slate-950 shadow-inner">
+            <div className="flex items-center justify-between border-b border-slate-800 px-3 py-2">
+              <div className="flex items-center gap-1.5">
+                <span className="h-2.5 w-2.5 rounded-full bg-red-500" />
+                <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
+                <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+              </div>
               <Button
                 size="sm"
-                variant="secondary"
-                className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity gap-1"
-                onClick={() => openSandboxWithCode(content.code!)}
+                variant="ghost"
+                className="h-7 gap-1 text-xs text-slate-300 hover:bg-slate-800 hover:text-white"
+                onClick={() => onRunCode(content.code!)}
               >
-                <Play className="w-3 h-3" />
+                <Play className="h-3 w-3" />
                 运行
               </Button>
             </div>
-          )}
-        </div>
-      )
-    }
-
-    if (responseType === 'evaluation' && typeof data?.content === 'object') {
-      const content = data.content as { summary?: string; score?: number; recommendations?: string[] }
-      return (
-        <div className="space-y-2">
-          <div className="flex items-center gap-2 text-green-600">
-            <CheckCircle className="w-4 h-4" />
-            <span className="font-medium">学习评估</span>
-            {typeof content.score === 'number' && <Badge variant="outline">{content.score.toFixed(1)} 分</Badge>}
+            <pre className="overflow-x-auto p-3 text-xs">
+              <code className="font-mono text-slate-50">{content.code}</code>
+            </pre>
           </div>
-          <p className="whitespace-pre-wrap">{content.summary || msg.content}</p>
-          {content.recommendations && content.recommendations.length > 0 && (
-            <ul className="list-disc list-inside text-xs text-muted-foreground">
-              {content.recommendations.map((r, i) => <li key={i}>{r}</li>)}
-            </ul>
+        )}
+      </div>
+    )
+  }
+
+  if (responseType === 'evaluation' && typeof data?.content === 'object') {
+    const content = data.content as {
+      summary?: string
+      score?: number
+      recommendations?: string[]
+    }
+    return (
+      <div className="space-y-2">
+        <div className="flex items-center gap-2 text-emerald-600">
+          <CheckCircle className="h-4 w-4" />
+          <span className="font-bold">学习评估</span>
+          {typeof content.score === 'number' && (
+            <Badge variant="outline" className="border-emerald-200 text-emerald-700">
+              {content.score.toFixed(1)} 分
+            </Badge>
           )}
         </div>
-      )
-    }
-
-    return <div className="whitespace-pre-wrap">{msg.content}</div>
+        <div className="prose prose-sm max-w-none text-slate-700">
+          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+            {content.summary || msg.content}
+          </ReactMarkdown>
+        </div>
+        {content.recommendations && content.recommendations.length > 0 && (
+          <ul className="list-disc space-y-1 rounded-xl border border-emerald-100 bg-emerald-50/50 p-3 pl-5 text-xs text-slate-600">
+            {content.recommendations.map((r, i) => (
+              <li key={i}>{r}</li>
+            ))}
+          </ul>
+        )}
+      </div>
+    )
   }
 
   return (
-    <Card className="h-[600px] flex flex-col">
-      <CardHeader className="pb-3">
-        <CardTitle className="text-lg flex items-center gap-2">
-          <Sparkles className="w-5 h-5 text-blue-500" />
-          学习对话
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="flex-1 flex flex-col">
-        <div className="flex-1 overflow-y-auto space-y-4 pr-2">
-          {messages.map((msg, idx) => (
-            <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div
-                className={`max-w-[90%] rounded-2xl px-4 py-3 text-sm ${
-                  msg.role === 'user'
-                    ? 'bg-primary text-primary-foreground'
-                    : msg.role === 'system'
-                    ? 'bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300'
-                    : 'bg-muted'
-                }`}
-              >
-                {msg.role === 'assistant' && (
-                  <div className="flex items-center gap-1.5 mb-1.5 text-xs text-muted-foreground">
-                    <Bot className="w-3.5 h-3.5" />
-                    <span className="font-medium">{msg.agentName || 'Assistant'}</span>
-                  </div>
-                )}
-                {msg.role === 'user' && (
-                  <div className="flex items-center justify-end gap-1.5 mb-1.5 text-xs text-primary-foreground/80">
-                    <span className="font-medium">你</span>
-                    <User className="w-3.5 h-3.5" />
-                  </div>
-                )}
-                {renderAssistantContent(msg)}
-              </div>
-            </div>
-          ))}
-          <div ref={bottomRef} />
-        </div>
-        <div className="flex gap-2 mt-4">
-          <Input
-            placeholder="输入你想学习的 Python 知识点..."
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-            disabled={loading}
-          />
-          <Button onClick={sendMessage} disabled={loading}>
-            <Send className="w-4 h-4" />
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
+    <div className="prose prose-sm max-w-none text-slate-700">
+      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+        {msg.content}
+      </ReactMarkdown>
+    </div>
   )
 }

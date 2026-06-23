@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { motion } from 'framer-motion'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
@@ -14,27 +15,21 @@ import {
   Map,
   ListChecks,
   Loader2,
+  Sparkles,
+  Copy,
+  Check,
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { GlassCard } from '@/components/ui/glass-card'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Progress } from '@/components/ui/progress'
+import { Stepper } from '@/components/ui/stepper'
+import { EmptyState } from '@/components/ui/empty-state'
 import api, { resourceApi } from '@/services/api'
 import { useSandboxStore } from '@/stores/sandboxStore'
-
-/**
- * TODO:
- * - [已完成] 使用 Markdown 渲染讲解文档
- * - [已完成] 使用 Mermaid 渲染思维导图
- * - [已完成] 显示完整的辩论议会报告
- * - [已完成] 练习题交互与一键运行到 Pyodide 沙箱
- * - [已完成] 接入 SSE 流式生成并显示进度
- * - [已完成] 练习题后端自动判题
- * - [待完成] 根据认知风格渲染不同形态（视觉/听觉/动觉）
- * - [待完成] TTS 语音播放
- */
+import { cn } from '@/lib/utils'
 
 interface Props {
   sessionId?: string
@@ -87,6 +82,13 @@ interface ResourceResult {
   }
 }
 
+const STAGES = [
+  { key: 'builder', label: '构建资源', icon: Sparkles },
+  { key: 'validation', label: '校验内容', icon: CheckCircle },
+  { key: 'debate', label: '辩论审核', icon: AlertCircle },
+  { key: 'complete', label: '生成完成', icon: BookOpen },
+]
+
 const STAGE_PROGRESS: Record<string, number> = {
   builder: 20,
   validation: 60,
@@ -109,12 +111,14 @@ export function ResourceViewer({ sessionId }: Props) {
   const [loading, setLoading] = useState(false)
   const [progressMessage, setProgressMessage] = useState('')
   const [progressValue, setProgressValue] = useState(0)
+  const [currentStage, setCurrentStage] = useState('builder')
   const mindmapRef = useRef<HTMLDivElement>(null)
   const setSandboxCode = useSandboxStore((s) => s.setCode)
 
-  // 练习题判题状态
   const [judgeResults, setJudgeResults] = useState<Record<number, { loading: boolean; result?: any }>>({})
   const [exerciseCodes, setExerciseCodes] = useState<Record<number, string>>({})
+
+  const activeStageIndex = STAGES.findIndex((s) => s.key === currentStage)
 
   const generate = async (targetConcept?: string) => {
     if (!sessionId) {
@@ -123,13 +127,12 @@ export function ResourceViewer({ sessionId }: Props) {
     }
 
     const conceptToGenerate = targetConcept || concept
-    if (targetConcept) {
-      setConcept(targetConcept)
-    }
+    if (targetConcept) setConcept(targetConcept)
 
     setLoading(true)
     setProgressValue(5)
     setProgressMessage('准备生成资源...')
+    setCurrentStage('builder')
     setResource(null)
 
     try {
@@ -155,6 +158,7 @@ export function ResourceViewer({ sessionId }: Props) {
 
           if (event.type === 'progress') {
             setProgressMessage(event.message || '')
+            setCurrentStage(event.stage || currentStage)
             setProgressValue(STAGE_PROGRESS[event.stage] || 50)
           } else if (event.type === 'complete') {
             finalResource = event as ResourceResult
@@ -167,8 +171,9 @@ export function ResourceViewer({ sessionId }: Props) {
       }
 
       if (!finalResource) {
-        // fallback 到同步接口
-        const res = await api.post('/resources/generate-for-session/default', null, { params: { concept: conceptToGenerate } })
+        const res = await api.post('/resources/generate-for-session/default', null, {
+          params: { concept: conceptToGenerate },
+        })
         setResource(res.data as ResourceResult)
         setProgressValue(100)
       }
@@ -180,13 +185,10 @@ export function ResourceViewer({ sessionId }: Props) {
     }
   }
 
-  // 监听对话面板触发的资源生成事件
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as { concept?: string } | undefined
-      if (detail?.concept) {
-        generate(detail.concept)
-      }
+      if (detail?.concept) generate(detail.concept)
     }
     window.addEventListener('eduhive:generate-resource', handler)
     return () => window.removeEventListener('eduhive:generate-resource', handler)
@@ -236,11 +238,11 @@ export function ResourceViewer({ sessionId }: Props) {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'PASSED':
-        return <CheckCircle className="w-4 h-4 text-green-500" />
+        return <CheckCircle className="h-5 w-5 text-emerald-500" />
       case 'MODIFIED':
-        return <AlertCircle className="w-4 h-4 text-yellow-500" />
+        return <AlertCircle className="h-5 w-5 text-amber-500" />
       case 'REJECTED':
-        return <XCircle className="w-4 h-4 text-red-500" />
+        return <XCircle className="h-5 w-5 text-red-500" />
       default:
         return null
     }
@@ -249,139 +251,157 @@ export function ResourceViewer({ sessionId }: Props) {
   const getVerdictColor = (verdict: string) => {
     switch (verdict) {
       case 'PASS':
-        return 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
+        return 'bg-emerald-100 text-emerald-700'
       case 'WARN':
-        return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300'
+        return 'bg-amber-100 text-amber-700'
       case 'REJECT':
       case 'VETO':
-        return 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300'
+        return 'bg-red-100 text-red-700'
       default:
-        return 'bg-gray-100 text-gray-700'
+        return 'bg-slate-100 text-slate-700'
     }
   }
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-2">
-        <input
-          className="flex-1 h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
-          value={concept}
-          onChange={(e) => setConcept(e.target.value)}
-          placeholder="输入知识点"
-        />
-        <Button onClick={() => generate()} disabled={loading} size="sm">
-          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : '生成'}
-        </Button>
-      </div>
+      {/* Input CTA */}
+      <GlassCard delay={0} hover={false} className="p-1">
+        <div className="flex gap-2 rounded-xl bg-gradient-to-r from-indigo-500/5 to-violet-500/5 p-2">
+          <input
+            className="flex-1 rounded-xl border border-slate-200/80 bg-white/80 px-3 py-2.5 text-sm font-medium outline-none transition-all placeholder:text-slate-400 focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/20"
+            value={concept}
+            onChange={(e) => setConcept(e.target.value)}
+            placeholder="输入知识点"
+          />
+          <Button
+            onClick={() => generate()}
+            disabled={loading}
+            size="sm"
+            className="rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-4 shadow-lg shadow-indigo-500/25 transition-transform active:scale-95"
+          >
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+            <span className="ml-1.5 hidden sm:inline">生成</span>
+          </Button>
+        </div>
+      </GlassCard>
 
+      {/* Loading progress */}
       {loading && (
-        <div className="space-y-2">
-          <div className="flex justify-between text-xs text-muted-foreground">
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="rounded-2xl border border-indigo-100 bg-indigo-50/50 p-4"
+        >
+          <div className="mb-3 flex items-center justify-between text-xs font-semibold text-slate-600">
             <span>{progressMessage || '生成中...'}</span>
             <span>{progressValue}%</span>
           </div>
-          <Progress value={progressValue} className="h-2" />
-        </div>
+          <Progress value={progressValue} className="mb-4 h-2" />
+          <Stepper steps={STAGES} activeIndex={activeStageIndex} progress={progressValue} />
+        </motion.div>
       )}
 
+      {/* Resource content */}
       {resource && (
         <Tabs defaultValue="document" className="w-full">
-          <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="document">
-              <FileText className="w-3 h-3 mr-1" /> 文档
-            </TabsTrigger>
-            <TabsTrigger value="mindmap">
-              <Map className="w-3 h-3 mr-1" /> 导图
-            </TabsTrigger>
-            <TabsTrigger value="exercises">
-              <ListChecks className="w-3 h-3 mr-1" /> 练习
-            </TabsTrigger>
-            <TabsTrigger value="debate">
-              <BookOpen className="w-3 h-3 mr-1" /> 审核
-            </TabsTrigger>
+          <TabsList className="grid h-auto w-full grid-cols-2 gap-1 rounded-2xl border border-slate-200/80 bg-slate-100/70 p-1 sm:grid-cols-4">
+            <TabTrigger value="document" icon={FileText} label="文档" />
+            <TabTrigger value="mindmap" icon={Map} label="导图" />
+            <TabTrigger value="exercises" icon={ListChecks} label="练习" />
+            <TabTrigger value="debate" icon={BookOpen} label="审核" />
           </TabsList>
 
-          <TabsContent value="document" className="mt-2">
-            <Card>
-              <CardContent className="pt-4">
-                <article className="prose prose-sm dark:prose-invert max-w-none">
+          <TabsContent value="document" className="mt-3">
+            <GlassCard hover={false} className="overflow-hidden">
+              <div className="border-b border-slate-100 bg-gradient-to-r from-indigo-50/30 to-violet-50/30 px-5 py-4">
+                <h4 className="text-sm font-bold text-slate-800">
+                  <FileText className="mr-1.5 inline h-4 w-4 text-indigo-500" />
+                  {resource.concept} · 讲解文档
+                </h4>
+              </div>
+              <div className="p-5">
+                <article className="prose prose-sm max-w-none">
                   <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
                     {resource.package.document}
                   </ReactMarkdown>
                 </article>
-              </CardContent>
-            </Card>
+              </div>
+            </GlassCard>
           </TabsContent>
 
-          <TabsContent value="mindmap" className="mt-2">
-            <Card>
-              <CardContent className="pt-4">
-                <div ref={mindmapRef} className="flex justify-center overflow-auto" />
-              </CardContent>
-            </Card>
+          <TabsContent value="mindmap" className="mt-3">
+            <GlassCard hover={false} className="overflow-hidden">
+              <div className="border-b border-slate-100 bg-gradient-to-r from-violet-50/30 to-indigo-50/30 px-5 py-4">
+                <h4 className="text-sm font-bold text-slate-800">
+                  <Map className="mr-1.5 inline h-4 w-4 text-violet-500" />
+                  思维导图
+                </h4>
+              </div>
+              <div className="p-5">
+                <div
+                  ref={mindmapRef}
+                  className="flex justify-center overflow-auto rounded-2xl border border-slate-100 bg-slate-50/50 p-4"
+                />
+              </div>
+            </GlassCard>
           </TabsContent>
 
-          <TabsContent value="exercises" className="mt-2 space-y-3">
+          <TabsContent value="exercises" className="mt-3 space-y-4">
             {resource.package.code_cases?.length > 0 && (
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <Code2 className="w-4 h-4 text-blue-500" />
+              <GlassCard hover={false} className="overflow-hidden">
+                <div className="border-b border-slate-100 bg-gradient-to-r from-indigo-50/30 to-blue-50/30 px-5 py-4">
+                  <h4 className="text-sm font-bold text-slate-800">
+                    <Code2 className="mr-1.5 inline h-4 w-4 text-indigo-500" />
                     实操案例
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
+                  </h4>
+                </div>
+                <div className="space-y-4 p-5">
                   {resource.package.code_cases.map((c, i) => (
-                    <div key={i} className="rounded-lg border p-3">
-                      <div className="font-medium text-sm mb-2">{c.title}</div>
-                      <pre className="text-xs bg-slate-950 text-slate-50 p-3 rounded-lg overflow-auto">
-                        <code>{c.code}</code>
-                      </pre>
+                    <div key={i} className="space-y-2">
+                      <h5 className="text-sm font-bold text-slate-800">{c.title}</h5>
+                      <CodeBlock code={c.code} onRun={() => runInSandbox(c.code)} />
                       {c.explanation && (
-                        <p className="text-xs text-muted-foreground mt-2">{c.explanation}</p>
+                        <p className="text-xs leading-relaxed text-slate-500">{c.explanation}</p>
                       )}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="mt-2"
-                        onClick={() => runInSandbox(c.code)}
-                      >
-                        <Play className="w-3 h-3 mr-1" /> 在沙箱运行
-                      </Button>
                     </div>
                   ))}
-                </CardContent>
-              </Card>
+                </div>
+              </GlassCard>
             )}
 
             {resource.package.exercises?.map((ex, i) => (
-              <Card key={i}>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <ListChecks className="w-4 h-4 text-green-500" />
+              <GlassCard key={i} hover={false} className="overflow-hidden">
+                <div className="border-b border-slate-100 bg-gradient-to-r from-emerald-50/30 to-teal-50/30 px-5 py-4">
+                  <h4 className="text-sm font-bold text-slate-800">
+                    <ListChecks className="mr-1.5 inline h-4 w-4 text-emerald-500" />
                     练习 {i + 1}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <p className="text-sm">{ex.question}</p>
+                  </h4>
+                </div>
+                <div className="space-y-3 p-5">
+                  <p className="text-sm font-semibold text-slate-700">{ex.question}</p>
                   {ex.starter_code && (
                     <textarea
-                      className="w-full h-32 font-mono text-xs p-3 rounded-lg border bg-slate-950 text-slate-50 resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+                      className="min-h-[120px] w-full rounded-xl border border-slate-200 bg-slate-950 p-3 font-mono text-xs text-slate-50 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/20"
                       defaultValue={ex.starter_code}
-                      onChange={(e) =>
-                        setExerciseCodes((prev) => ({ ...prev, [i]: e.target.value }))
-                      }
+                      onChange={(e) => setExerciseCodes((prev) => ({ ...prev, [i]: e.target.value }))}
                     />
                   )}
                   {ex.hints && ex.hints.length > 0 && (
-                    <div className="text-xs text-muted-foreground">
-                      <Lightbulb className="w-3 h-3 inline mr-1" />
-                      提示：{ex.hints.join('；')}
+                    <div className="flex flex-wrap gap-1.5">
+                      {ex.hints.map((hint, idx) => (
+                        <Badge key={idx} variant="secondary" className="bg-amber-50 text-amber-700">
+                          <Lightbulb className="mr-1 h-3 w-3" />
+                          {hint}
+                        </Badge>
+                      ))}
                     </div>
                   )}
                   {ex.expected_output && (
-                    <div className="text-xs text-muted-foreground">
-                      期望输出：<code className="bg-muted px-1 rounded">{ex.expected_output}</code>
+                    <div className="text-xs text-slate-500">
+                      期望输出：
+                      <code className="ml-1 rounded-md bg-slate-100 px-1.5 py-0.5 text-slate-800">
+                        {ex.expected_output}
+                      </code>
                     </div>
                   )}
                   <div className="flex gap-2">
@@ -389,107 +409,211 @@ export function ResourceViewer({ sessionId }: Props) {
                       <Button
                         variant="outline"
                         size="sm"
+                        className="rounded-lg"
                         onClick={() => runInSandbox(exerciseCodes[i] ?? ex.starter_code)}
                       >
-                        <Play className="w-3 h-3 mr-1" /> 在沙箱运行
+                        <Play className="mr-1.5 h-3.5 w-3.5" /> 在沙箱运行
                       </Button>
                     )}
                     {ex.expected_output && (
                       <Button
                         size="sm"
+                        className="rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 shadow-lg shadow-emerald-500/25"
                         onClick={() => runJudge(i, ex)}
                         disabled={judgeResults[i]?.loading}
                       >
                         {judgeResults[i]?.loading ? (
-                          <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                          <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
                         ) : (
-                          <CheckCircle className="w-3 h-3 mr-1" />
+                          <CheckCircle className="mr-1.5 h-3.5 w-3.5" />
                         )}
                         提交判题
                       </Button>
                     )}
                   </div>
                   {judgeResults[i]?.result && (
-                    <div
-                      className={`text-xs p-2 rounded ${
+                    <motion.div
+                      initial={{ opacity: 0, y: 4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className={cn(
+                        'rounded-xl p-3 text-xs',
                         judgeResults[i].result.passed
-                          ? 'bg-green-50 text-green-700'
-                          : 'bg-red-50 text-red-700'
-                      }`}
-                    >
-                      {judgeResults[i].result.passed ? '✅ 通过' : '❌ 未通过'}：
-                      {judgeResults[i].result.reason}
-                      {judgeResults[i].result.actual_output && (
-                        <div className="mt-1">
-                          实际输出：<code>{judgeResults[i].result.actual_output}</code>
-                        </div>
+                          ? 'bg-emerald-50 text-emerald-800'
+                          : 'bg-red-50 text-red-800'
                       )}
-                    </div>
+                    >
+                      <div className="mb-1 flex items-center gap-1.5 font-bold">
+                        {judgeResults[i].result.passed ? (
+                          <CheckCircle className="h-3.5 w-3.5" />
+                        ) : (
+                          <XCircle className="h-3.5 w-3.5" />
+                        )}
+                        {judgeResults[i].result.passed ? '通过' : '未通过'}
+                      </div>
+                      <p>{judgeResults[i].result.reason}</p>
+                      {judgeResults[i].result.actual_output && (
+                        <p className="mt-1">
+                          实际输出：
+                          <code className="rounded bg-white/60 px-1">{judgeResults[i].result.actual_output}</code>
+                        </p>
+                      )}
+                    </motion.div>
                   )}
-                </CardContent>
-              </Card>
+                </div>
+              </GlassCard>
             ))}
           </TabsContent>
 
-          <TabsContent value="debate" className="mt-2">
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm flex items-center gap-2">
+          <TabsContent value="debate" className="mt-3">
+            <GlassCard hover={false} className="overflow-hidden">
+              <div className="border-b border-slate-100 bg-gradient-to-r from-amber-50/30 to-orange-50/30 px-5 py-4">
+                <h4 className="flex items-center gap-2 text-sm font-bold text-slate-800">
                   {getStatusIcon(resource.debate_report.status)}
                   辩论议会报告 · {resource.debate_report.status}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
+                </h4>
+              </div>
+              <div className="space-y-4 p-5">
                 <div className="flex flex-wrap gap-2">
                   {Object.entries(resource.debate_report.final_votes).map(([agent, verdict]) => (
-                    <Badge key={agent} variant="secondary" className={getVerdictColor(verdict)}>
+                    <Badge key={agent} variant="secondary" className={cn(getVerdictColor(verdict), 'rounded-md text-xs font-bold')}>
                       {agent}: {verdict}
                     </Badge>
                   ))}
                 </div>
 
                 {resource.validation.forbidden_concepts.length > 0 && (
-                  <div className="text-xs p-2 rounded bg-red-50 text-red-700">
-                    检测到疑似超纲概念：{resource.validation.forbidden_concepts.join('、')}
+                  <div className="rounded-xl bg-red-50 p-3 text-xs font-bold text-red-700">
+                    <span>检测到疑似超纲概念：</span>
+                    {resource.validation.forbidden_concepts.join('、')}
                   </div>
                 )}
                 {resource.validation.ast_violations.length > 0 && (
-                  <div className="text-xs p-2 rounded bg-red-50 text-red-700">
-                    AST 校验问题：{resource.validation.ast_violations.join('、')}
+                  <div className="rounded-xl bg-red-50 p-3 text-xs font-bold text-red-700">
+                    <span>AST 校验问题：</span>
+                    {resource.validation.ast_violations.join('、')}
                   </div>
                 )}
 
-                <div className="space-y-2">
+                <div className="relative space-y-4 pl-4 before:absolute before:left-[7px] before:top-2 before:bottom-2 before:w-0.5 before:rounded-full before:bg-slate-200">
                   {resource.debate_report.rounds.map((r) => (
-                    <div key={r.round} className="rounded-lg border p-3 text-sm">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-medium">
-                          Round {r.round} · {r.agent}
-                        </span>
-                        <Badge variant="secondary" className={getVerdictColor(r.verdict)}>
-                          {r.verdict}
-                        </Badge>
-                      </div>
-                      <p className="text-muted-foreground text-xs">{r.message}</p>
-                      {r.suggestion && (
-                        <p className="text-xs text-yellow-700 mt-2 bg-yellow-50 p-2 rounded">
-                          建议：{r.suggestion}
-                        </p>
-                      )}
+                    <div key={r.round} className="relative text-sm">
+                      <span
+                        className={cn(
+                          'absolute -left-[21px] top-1.5 h-3 w-3 rounded-full ring-4 ring-white',
+                          r.verdict === 'PASS'
+                            ? 'bg-emerald-500'
+                            : r.verdict === 'WARN'
+                            ? 'bg-amber-500'
+                            : 'bg-red-500'
+                        )}
+                      />
+                      <GlassCard hover={false} className="p-3">
+                        <div className="mb-1 flex items-center justify-between">
+                          <span className="font-bold text-slate-800">
+                            Round {r.round} · {r.agent}
+                          </span>
+                          <Badge variant="secondary" className={cn(getVerdictColor(r.verdict), 'rounded-md text-[10px] font-bold')}>
+                            {r.verdict}
+                          </Badge>
+                        </div>
+                        <p className="text-xs leading-relaxed text-slate-600">{r.message}</p>
+                        {r.suggestion && (
+                          <p className="mt-2 rounded-xl border border-amber-100 bg-amber-50 p-2 text-xs font-semibold text-amber-800">
+                            建议：{r.suggestion}
+                          </p>
+                        )}
+                      </GlassCard>
                     </div>
                   ))}
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            </GlassCard>
           </TabsContent>
         </Tabs>
       )}
 
       {!resource && !loading && (
-        <p className="text-sm text-muted-foreground">
-          输入知识点并点击生成，系统将自动调用多智能体生成个性化学习资源。
-        </p>
+        <EmptyState
+          icon={BookOpen}
+          title="还没有生成资源"
+          description="输入知识点并点击生成，系统将自动调用多智能体生成个性化学习资源。"
+          action={
+            <Button
+              size="sm"
+              onClick={() => generate()}
+              className="rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 shadow-lg shadow-indigo-500/25"
+            >
+              <Sparkles className="mr-1.5 h-4 w-4" /> 立即生成
+            </Button>
+          }
+        />
       )}
+    </div>
+  )
+}
+
+function TabTrigger({
+  value,
+  icon: Icon,
+  label,
+}: {
+  value: string
+  icon: React.ElementType
+  label: string
+}) {
+  return (
+    <TabsTrigger
+      value={value}
+      className="rounded-xl py-2 text-xs font-bold transition-all data-[state=active]:bg-white data-[state=active]:text-indigo-600 data-[state=active]:shadow-sm data-[state=active]:ring-1 data-[state=active]:ring-indigo-100"
+    >
+      <Icon className="mr-1.5 h-3.5 w-3.5" />
+      {label}
+    </TabsTrigger>
+  )
+}
+
+function CodeBlock({ code, onRun }: { code: string; onRun?: () => void }) {
+  const [copied, setCopied] = useState(false)
+
+  const copy = async () => {
+    await navigator.clipboard.writeText(code)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow-inner">
+      <div className="flex items-center justify-between border-b border-slate-800 px-4 py-2.5">
+        <div className="flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-full bg-red-500" />
+          <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
+          <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+        </div>
+        <div className="flex items-center gap-1">
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 gap-1 text-xs text-slate-300 hover:bg-slate-800 hover:text-white"
+            onClick={copy}
+          >
+            {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+            {copied ? '已复制' : '复制'}
+          </Button>
+          {onRun && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 gap-1 text-xs text-slate-300 hover:bg-slate-800 hover:text-white"
+              onClick={onRun}
+            >
+              <Play className="h-3 w-3" /> 运行
+            </Button>
+          )}
+        </div>
+      </div>
+      <pre className="max-h-64 overflow-auto p-4">
+        <code className="font-mono text-xs leading-relaxed text-slate-50">{code}</code>
+      </pre>
     </div>
   )
 }

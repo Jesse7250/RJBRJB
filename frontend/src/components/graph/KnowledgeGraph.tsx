@@ -1,21 +1,28 @@
 import { useEffect, useRef, useState } from 'react'
+import * as echarts from 'echarts'
+import { Share2 } from 'lucide-react'
 
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { GlassCard } from '@/components/ui/glass-card'
+import { IconBox } from '@/components/ui/icon-box'
+import { Skeleton } from '@/components/ui/skeleton'
 import { graphApi, type GraphData } from '@/services/api'
 
-/**
- * TODO:
- * - [待完成] 使用 ECharts 或 D3 替换 Canvas 实现更美观的力导向图
- * - [待完成] 高亮已掌握、当前目标、未学节点
- * - [待完成] 点击节点显示详情并触发学习
- * - [待完成] 显示个人学习路径
- * - [待完成] 按模块着色与图例
- */
+const MODULE_COLORS: Record<string, string> = {
+  基础语法: '#6366f1',
+  数据类型: '#10b981',
+  控制流: '#f59e0b',
+  函数: '#ec4899',
+  面向对象: '#06b6d4',
+  标准库: '#8b5cf6',
+}
+
+const FALLBACK_PALETTE = ['#6366f1', '#10b981', '#f59e0b', '#ec4899', '#06b6d4', '#8b5cf6']
 
 export function KnowledgeGraph() {
   const [graphData, setGraphData] = useState<GraphData | null>(null)
   const [loading, setLoading] = useState(true)
-  const containerRef = useRef<HTMLDivElement>(null)
+  const chartRef = useRef<HTMLDivElement>(null)
+  const chartInstanceRef = useRef<echarts.ECharts | null>(null)
 
   useEffect(() => {
     graphApi.getGraph().then((res) => {
@@ -24,118 +31,136 @@ export function KnowledgeGraph() {
     })
   }, [])
 
-  // 简单力导向图渲染
   useEffect(() => {
-    if (!graphData || !containerRef.current) return
+    if (!graphData || !chartRef.current) return
 
-    const canvas = document.createElement('canvas')
-    const container = containerRef.current
-    container.innerHTML = ''
-    container.appendChild(canvas)
-
-    const width = container.clientWidth
-    const height = 500
-    canvas.width = width
-    canvas.height = height
-
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-
-    const nodes = graphData.nodes.map((n) => ({
-      ...n,
-      x: Math.random() * width,
-      y: Math.random() * height,
-      vx: 0,
-      vy: 0,
+    const modules = Array.from(new Set(graphData.nodes.map((n) => n.module)))
+    const categories = modules.map((name, index) => ({
+      name,
+      itemStyle: {
+        color: MODULE_COLORS[name] || FALLBACK_PALETTE[index % FALLBACK_PALETTE.length],
+      },
     }))
 
-    const edges = graphData.edges
+    const categoryIndex = (module: string) => modules.indexOf(module)
 
-    function animate() {
-      if (!ctx) return
-      ctx.clearRect(0, 0, width, height)
+    const nodes = graphData.nodes.map((n) => ({
+      id: n.id,
+      name: n.name,
+      value: n.difficulty,
+      category: categoryIndex(n.module),
+      symbolSize: 24 + n.difficulty * 5,
+      label: { show: true, formatter: '{b}', fontSize: 12, fontWeight: 600 },
+      itemStyle: {
+        color: MODULE_COLORS[n.module] || FALLBACK_PALETTE[categoryIndex(n.module) % FALLBACK_PALETTE.length],
+        borderColor: '#fff',
+        borderWidth: 2,
+        shadowBlur: 10,
+        shadowColor: 'rgba(0,0,0,0.12)',
+      },
+    }))
 
-      // 简单的力导向模拟
-      for (let i = 0; i < nodes.length; i++) {
-        for (let j = i + 1; j < nodes.length; j++) {
-          const dx = nodes[j].x - nodes[i].x
-          const dy = nodes[j].y - nodes[i].y
-          const dist = Math.sqrt(dx * dx + dy * dy) || 1
-          const force = 500 / (dist * dist)
-          const fx = (dx / dist) * force
-          const fy = (dy / dist) * force
-          nodes[i].vx -= fx
-          nodes[i].vy -= fy
-          nodes[j].vx += fx
-          nodes[j].vy += fy
-        }
-      }
+    const links = graphData.edges.map((e) => ({
+      source: e.source,
+      target: e.target,
+      value: e.strength,
+      lineStyle: { width: 1 + e.strength * 2, opacity: 0.5 },
+    }))
 
-      for (const edge of edges) {
-        const source = nodes.find((n) => n.id === edge.source)
-        const target = nodes.find((n) => n.id === edge.target)
-        if (source && target) {
-          const dx = target.x - source.x
-          const dy = target.y - source.y
-          const dist = Math.sqrt(dx * dx + dy * dy) || 1
-          const force = (dist - 100) * 0.01
-          const fx = (dx / dist) * force
-          const fy = (dy / dist) * force
-          source.vx += fx
-          source.vy += fy
-          target.vx -= fx
-          target.vy -= fy
+    const chart = echarts.init(chartRef.current, undefined, { renderer: 'canvas' })
+    chartInstanceRef.current = chart
 
-          ctx.beginPath()
-          ctx.moveTo(source.x, source.y)
-          ctx.lineTo(target.x, target.y)
-          ctx.strokeStyle = 'rgba(148, 163, 184, 0.5)'
-          ctx.lineWidth = 1
-          ctx.stroke()
-        }
-      }
+    chart.setOption({
+      backgroundColor: 'transparent',
+      tooltip: {
+        trigger: 'item',
+        backgroundColor: 'rgba(255,255,255,0.96)',
+        borderColor: '#e2e8f0',
+        borderWidth: 1,
+        padding: [10, 14],
+        textStyle: { color: '#1e293b' },
+        formatter: (params: any) => {
+          if (params.dataType === 'edge') return `${params.data.source} → ${params.data.target}`
+          const data = params.data as any
+          return `<div class="font-sans">
+            <div class="font-bold text-slate-900">${data.name}</div>
+            <div class="text-xs text-slate-500">模块：${categories[data.category]?.name}</div>
+            <div class="text-xs text-slate-500">难度：${data.value}/5</div>
+          </div>`
+        },
+      },
+      legend: {
+        top: 0,
+        left: 'center',
+        itemGap: 18,
+        textStyle: { color: '#64748b', fontSize: 12, fontWeight: 500 },
+        data: categories.map((c) => c.name),
+      },
+      animationDuration: 1600,
+      animationEasingUpdate: 'quinticInOut',
+      series: [
+        {
+          name: 'Python 知识图谱',
+          type: 'graph',
+          layout: 'force',
+          data: nodes,
+          links,
+          categories,
+          roam: true,
+          draggable: true,
+          label: { show: true, position: 'bottom' },
+          force: {
+            repulsion: 480,
+            edgeLength: [80, 150],
+            gravity: 0.08,
+          },
+          emphasis: {
+            focus: 'adjacency',
+            lineStyle: { width: 4, opacity: 1 },
+            itemStyle: { shadowBlur: 18, shadowColor: 'rgba(0,0,0,0.2)' },
+          },
+          lineStyle: {
+            color: 'source',
+            curveness: 0.05,
+          },
+        },
+      ],
+    })
 
-      for (const node of nodes) {
-        node.vx *= 0.8
-        node.vy *= 0.8
-        node.x += node.vx
-        node.y += node.vy
+    const handleResize = () => chart.resize()
+    window.addEventListener('resize', handleResize)
 
-        // 边界约束
-        node.x = Math.max(30, Math.min(width - 30, node.x))
-        node.y = Math.max(30, Math.min(height - 30, node.y))
-
-        ctx.beginPath()
-        ctx.arc(node.x, node.y, 10 + node.difficulty * 2, 0, Math.PI * 2)
-        ctx.fillStyle = `hsl(${210 + node.difficulty * 20}, 70%, 60%)`
-        ctx.fill()
-
-        ctx.fillStyle = '#334155'
-        ctx.font = '12px sans-serif'
-        ctx.textAlign = 'center'
-        ctx.fillText(node.name, node.x, node.y + 30)
-      }
-
-      requestAnimationFrame(animate)
+    return () => {
+      window.removeEventListener('resize', handleResize)
+      chart.dispose()
+      chartInstanceRef.current = null
     }
-
-    animate()
   }, [graphData])
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="text-lg">Python 知识图谱</CardTitle>
-      </CardHeader>
-      <CardContent>
+    <GlassCard className="overflow-hidden" hover={false}>
+      <div className="flex items-center justify-between border-b border-slate-100 bg-gradient-to-r from-violet-50/50 to-indigo-50/50 px-5 py-4">
+        <div className="flex items-center gap-3">
+          <IconBox icon={Share2} variant="violet" size="sm" />
+          <div>
+            <h3 className="text-base font-bold text-slate-900">Python 知识图谱</h3>
+            <p className="text-xs text-slate-500">力导向图 · 按模块着色</p>
+          </div>
+        </div>
+      </div>
+      <div className="p-5">
         {loading ? (
-          <div className="h-[500px] flex items-center justify-center text-muted-foreground">
-            加载中...
+          <div className="flex h-[500px] flex-col items-center justify-center gap-3 text-slate-500">
+            <Skeleton className="h-10 w-10 rounded-full" />
+            <span className="text-sm">正在加载知识图谱...</span>
           </div>
         ) : (
-          <div ref={containerRef} className="h-[500px] w-full rounded-lg bg-slate-50 dark:bg-slate-900" />
+          <div
+            ref={chartRef}
+            className="h-[500px] w-full rounded-2xl border border-slate-100 bg-slate-50/50"
+          />
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </GlassCard>
   )
 }
