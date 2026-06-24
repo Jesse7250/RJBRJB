@@ -10,7 +10,7 @@ import json
 import re
 from typing import Any, Dict, List, Optional
 
-from app.agents.base import BaseAgent
+from app.agents.base import AgentMessage, BaseAgent
 from app.models.schemas import StudentProfile
 
 
@@ -36,21 +36,34 @@ class ProfilerAgent(BaseAgent):
 
 只输出 JSON，不要输出其他解释。"""
 
-    def run(
+    def run(self, message: AgentMessage) -> AgentMessage:
+        """统一入口：根据用户消息更新画像并识别意图"""
+        user_message = message.payload.get("message", "")
+        current_profile = message.context.get("profile", {})
+        dialogue_history = message.context.get("dialogue_history", [])
+
+        result = self._infer_profile(user_message, current_profile, dialogue_history)
+
+        new_context = {**message.context, "profile": result["profile"]}
+        return AgentMessage(
+            intent=result["intent"],
+            stage="profiler",
+            payload={
+                "response_message": result["response_message"],
+                "profile": result["profile"],
+            },
+            context=new_context,
+            from_agent=self.name,
+            metadata={**message.metadata, "raw": result.get("raw", "")},
+        )
+
+    def _infer_profile(
         self,
         message: str,
         current_profile: Optional[Dict[str, Any]] = None,
         dialogue_history: Optional[List[Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
-        """根据用户消息更新画像
-
-        Returns:
-            {
-                "profile": StudentProfile dict,
-                "response_message": str,
-                "intent": str,
-            }
-        """
+        """根据用户消息更新画像（内部实现）"""
         current_profile = current_profile or {}
         dialogue_history = dialogue_history or []
 

@@ -1,6 +1,8 @@
 """快速验证后端 API"""
 import os
 
+import pytest
+
 os.environ["GRAPH_BACKEND"] = "memory"
 os.environ["LLM_PROVIDER"] = "mock"
 
@@ -9,6 +11,14 @@ from fastapi.testclient import TestClient
 from app.main import app
 
 client = TestClient(app)
+
+
+@pytest.fixture
+def session_id():
+    r = client.post("/api/sessions/", json={"target_concept": "文件操作"})
+    data = r.json()
+    assert r.status_code == 200
+    return data["session_id"]
 
 
 def test_health():
@@ -30,10 +40,9 @@ def test_session():
     data = r.json()
     print("/api/sessions/:", r.status_code, data["session_id"])
     assert r.status_code == 200
-    return data["session_id"]
 
 
-def test_chat(session_id: str):
+def test_chat(session_id):
     r = client.post(
         f"/api/sessions/{session_id}/chat",
         json={"message": "我想学习文件操作", "message_type": "text"},
@@ -45,7 +54,7 @@ def test_chat(session_id: str):
     assert r.status_code == 200
 
 
-def test_generate_resource(session_id: str):
+def test_generate_resource(session_id):
     r = client.post(f"/api/resources/generate-for-session/{session_id}?concept=文件操作")
     data = r.json()
     print("/resources/generate status:", r.status_code)

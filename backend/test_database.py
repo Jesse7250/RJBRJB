@@ -6,8 +6,6 @@ import uuid
 
 import pytest
 
-# 使用临时数据库，避免污染开发环境
-os.environ.setdefault("DATABASE_URL", "sqlite:///./test_eduhive.db")
 os.environ.setdefault("DEEPSEEK_API_KEY", "sk-test")
 os.environ.setdefault("LLM_PROVIDER", "mock")
 
@@ -16,18 +14,27 @@ from app.services import database as db
 
 @pytest.fixture(autouse=True)
 def clean_test_db():
-    """每个测试用例前重置临时数据库"""
-    settings = db.get_settings()
-    db_path = settings.DATABASE_URL.replace("sqlite:///", "")
-    if os.path.exists(db_path):
-        os.remove(db_path)
+    """每个测试用例前在临时文件创建独立数据库"""
+    # 使用临时文件，避免与开发数据库 eduhive.db 冲突
+    fd, temp_path = tempfile.mkstemp(suffix=".db", prefix="test_eduhive_")
+    os.close(fd)
+
+    # 更新配置（需要清除 lru_cache 才能重新读取环境变量）
+    os.environ["DATABASE_URL"] = f"sqlite:///{temp_path}"
+    db.get_settings.cache_clear()
+
     # 触发建表
     _db = db.get_db()
     _db.conn.close()
+
     yield
+
     # 测试结束后再清理
-    if os.path.exists(db_path):
-        os.remove(db_path)
+    if os.path.exists(temp_path):
+        try:
+            os.remove(temp_path)
+        except PermissionError:
+            pass
 
 
 class TestGenerationTask:

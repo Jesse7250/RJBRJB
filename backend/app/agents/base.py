@@ -1,19 +1,58 @@
-"""Agent 基类
+"""Agent 基类与统一消息协议
 
-TODO:
-- [待完成] 增加 Agent 调用耗时统计
-- [待完成] 增加 Agent 记忆（Memory）管理
-- [待完成] 支持流式 think 输出
+所有 Agent 通过 AgentMessage 进行通信，便于：
+1. Orchestrator 统一路由和编排
+2. 未来平滑引入 LangGraph 等图编排框架
+3. 统一超时、熔断、日志和降级处理
 """
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
+
+from pydantic import BaseModel, Field
 
 from app.agents.llm import BaseLLM, get_llm_provider
+
+
+class AgentMessage(BaseModel):
+    """Agent 间统一消息协议"""
+
+    intent: str = Field("chat", description="用户意图: chat / knowledge_request / code_help / progress_check / path_adjust")
+    stage: str = Field("profiler", description="当前处理阶段: profiler / navigator / generator / reviewer / tutor / evaluator")
+    payload: Dict[str, Any] = Field(default_factory=dict, description="当前阶段输入数据")
+    context: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="会话上下文: profile / dialogue_history / target_concept / session_id 等",
+    )
+    from_agent: str = Field("user", description="消息来源 Agent")
+    to_agent: str = Field("", description="目标 Agent（空表示由 Orchestrator 决定）")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="元数据: depth / error_count / from_cache 等")
+
+    def with_payload(self, **kwargs) -> "AgentMessage":
+        """返回一个 payload 被更新的副本"""
+        new_payload = {**self.payload, **kwargs}
+        return self.model_copy(update={"payload": new_payload})
+
+    def with_context(self, **kwargs) -> "AgentMessage":
+        """返回一个 context 被更新的副本"""
+        new_context = {**self.context, **kwargs}
+        return self.model_copy(update={"context": new_context})
+
+    def with_stage(self, stage: str) -> "AgentMessage":
+        """返回一个 stage 被更新的副本"""
+        return self.model_copy(update={"stage": stage})
+
+    def reply(self, payload: Dict[str, Any], stage: Optional[str] = None, from_agent: Optional[str] = None) -> "AgentMessage":
+        """构造回复消息"""
+        update = {"payload": payload, "from_agent": from_agent or self.from_agent}
+        if stage:
+            update["stage"] = stage
+        return self.model_copy(update=update)
 
 
 class BaseAgent:
     """所有 Agent 的基类
 
-    子类可以选择实现 run() 或自定义方法（如 review）。
+    子类必须实现 run(message: AgentMessage) -> AgentMessage。
+    子类可以选择实现 think() 用于直接调用 LLM。
     """
 
     name: str = "BaseAgent"
@@ -40,6 +79,6 @@ class BaseAgent:
             parts.append(f"{key}: {value}")
         return "\n".join(parts)
 
-    def run(self, *args, **kwargs) -> Dict[str, Any]:
-        """默认 run 实现，子类可重写"""
+    def run(self, message: AgentMessage) -> AgentMessage:
+        """统一入口，子类必须实现"""
         raise NotImplementedError(f"{self.__class__.__name__} 未实现 run 方法")

@@ -1,33 +1,29 @@
-"""Agent Orchestrator：多智能体编排与路由
+"""Agent Orchestrator：多智能体编排与路由（5 角色分层版）
 
-根据学生意图，决定调用哪个 Agent，并管理完整学习流程：
-Profiler -> Navigator -> Builder -> DebateCouncil -> Renderer -> Socrates -> Evaluator -> Profiler
+职责：
+1. 接收用户输入，识别意图
+2. 维护会话状态
+3. 按教育 SOP 在 5 个 Agent 之间路由消息
+4. 提供超时熔断与异常降级
+5. 对外保持原有接口稳定（handle_chat / generate_resource / ...）
 
-TODO:
-- [待完成] 用 LLM 做意图分类与知识点 NER，替代关键词匹配
-- [待完成] 实现 Speaker Selection 教育 SOP 路由函数
-- [待完成] 增加 Agent 超时熔断与异常恢复
-- [待完成] 接入学习行为日志记录
-- [待完成] 根据 Evaluator 结果自动闭环更新画像与学习路径
-- [待完成] 支持多轮苏格拉底辅导的状态追踪
+5 个执行角色：
+- Orchestrator（本类）
+- Profiler
+- Navigator
+- Generator
+- Reviewer（内部含 DebateCouncil / SocratesTutor / LearningEvaluator）
 """
 import asyncio
-from typing import Any, AsyncIterator, Callable, Dict, List, Optional
+import re
+from typing import Any, AsyncIterator, Dict, List, Optional
 
-from app.agents.builder import BuilderAgent
-from app.agents.debate_council import DebateCouncil
-from app.agents.evaluator import EvaluatorAgent
+from app.agents.base import AgentMessage, BaseAgent
+from app.agents.generator import GeneratorAgent
 from app.agents.navigator import NavigatorAgent
 from app.agents.profiler import ProfilerAgent
-from app.agents.socrates import SocratesAgent
+from app.agents.reviewer import ReviewerAgent
 from app.models.schemas import AgentResponse
-from app.core.config import get_settings
-from app.services.graph_factory import get_graph_store
-from app.services.neuro_symbolic import NeuroSymbolicValidator
-from app.services.resource_cache import (
-    get_cached_resource,
-    set_cached_resource,
-)
 
 
 class AgentOrchestrator:
@@ -36,23 +32,18 @@ class AgentOrchestrator:
     def __init__(self):
         self.profiler = ProfilerAgent()
         self.navigator = NavigatorAgent()
-        self.builder = BuilderAgent()
-        self.debate_council = DebateCouncil()
-        self.socrates = SocratesAgent()
-        self.evaluator = EvaluatorAgent()
-        self.validator = NeuroSymbolicValidator()
+        self.generator = GeneratorAgent()
+        self.reviewer = ReviewerAgent()
 
-    def _get_cached_resource(
-        self, concept: str, profile: Dict[str, Any]
-    ) -> Optional[Dict[str, Any]]:
-        ttl = get_settings().RESOURCE_CACHE_TTL_HOURS
-        return get_cached_resource(concept, profile, max_age_hours=ttl)
+    @staticmethod
+    def _to_dict(obj: Any) -> Any:
+        if hasattr(obj, "model_dump"):
+            return obj.model_dump()
+        return obj
 
-    def _set_cached_resource(
-        self, concept: str, profile: Dict[str, Any], result: Dict[str, Any]
-    ):
-        set_cached_resource(concept, profile, result)
-
+    # ------------------------------------------------------------------
+    # 对外接口：聊天
+    # ------------------------------------------------------------------
     def handle_chat(
         self,
         session: dict,
@@ -60,42 +51,16 @@ class AgentOrchestrator:
         message_type: str = "text",
     ) -> AgentResponse:
         """处理学生消息并返回 Agent 响应（同步版本）"""
-        profile = session.get("profile", {})
-        dialogue_history = session.get("dialogue_history", [])
-
-        # Step 1: Profiler 更新画像 + 识别意图
-        profiler_result = self.profiler.run(
-            message=message,
-            current_profile=profile,
-            dialogue_history=dialogue_history,
+        context = self._session_to_context(session)
+        msg = AgentMessage(
+            intent=self._classify_intent(message),
+            stage="profiler",
+            payload={"message": message, "message_type": message_type},
+            context=context,
+            from_agent="user",
         )
-        profile = profiler_result["profile"]
-        session["profile"] = profile
-        intent = profiler_result["intent"]
-
-        # Step 2: 根据意图路由
-        if intent == "KNOWLEDGE_REQUEST":
-            return self._handle_knowledge_request(session, message, profile)
-
-        if intent == "CODE_HELP":
-            return self._handle_code_help(session, message, profile)
-
-        if intent == "PROGRESS_CHECK":
-            return self._handle_progress_check(session, profile)
-
-        if intent == "PATH_ADJUST":
-            return self._handle_path_adjust(session, message, profile)
-
-        # 默认聊天回复
-        return AgentResponse(
-            agent_name="Profiler",
-            response_type="chat",
-            content={
-                "message": profiler_result["response_message"],
-                "intent": intent,
-            },
-            profile_update=profile,
-        )
+        result = self._route(msg)
+        return self._to_agent_response(result)
 
     async def handle_chat_stream(
         self,
@@ -105,81 +70,42 @@ class AgentOrchestrator:
     ) -> AgentResponse:
         """处理学生消息并返回 Agent 响应（异步流式版本）
 
-        当前为简化实现：内部仍调用同步 handle_chat，但用 to_thread 避免阻塞事件循环，
-        未来可拆分为多步骤 yield thinking 事件。
+        当前内部仍调用同步 handle_chat，未来可拆分为多步骤 yield thinking 事件。
         """
         return await asyncio.to_thread(self.handle_chat, session, message, message_type)
 
-    def _build_debate_feedback(self, debate_report: Dict[str, Any]) -> str:
-        """从辩论议会报告中提取修订建议"""
-        lines = []
-        for r in debate_report.get("rounds", []):
-            if r.get("verdict") in ("WARN", "REJECT", "VETO") and r.get("suggestion"):
-                lines.append(f"- {r['agent']}：{r['suggestion']}")
-        return "\n".join(lines) or "请整体提升教学资源质量，确保概念准确、代码可运行。"
+    # ------------------------------------------------------------------
+    # 对外接口：资源生成
+    # ------------------------------------------------------------------
+    def generate_resource(self, session: dict, concept: str, max_revisions: int = 1) -> Dict[str, Any]:
+        """生成资源并执行辩论议会（同步版本，兼容旧接口）"""
+        context = self._session_to_context(session)
+        context["target_concept"] = concept
 
-    def _validate_and_debate(
-        self, package, concept: str, concept_info: Dict[str, Any]
-    ) -> tuple[List[str], List[str], Any]:
-        """执行校验与辩论议会"""
-        graph = get_graph_store()
-        forbidden = graph.check_forbidden_concepts(package.document, concept)
-        ast_violations = self.validator.validate_code_blocks(package.document, concept)
-        all_forbidden = list(set(forbidden + ast_violations))
-        debate_report = self.debate_council.debate(package, concept_info, all_forbidden)
-        return all_forbidden, ast_violations, debate_report
-
-    def generate_resource(
-        self, session: dict, concept: str, max_revisions: int = 1
-    ) -> Dict[str, Any]:
-        """生成资源并执行辩论议会（同步版本，兼容旧接口）
-
-        若辩论议会 REJECTED，会根据建议自动修订（默认最多 1 轮）。
-        已生成并审核通过的资源会被缓存，避免重复调用 LLM。
-        """
-        profile = session.get("profile", {})
-        cached = self._get_cached_resource(concept, profile)
-        if cached:
-            session["last_package"] = cached["package"]
-            session["last_debate"] = cached["debate_report"]
-            return cached
-
-        graph = get_graph_store()
-        concept_info = graph.get_concept(concept) or {}
-
-        # Builder 生成资源
-        package = self.builder.run(concept, profile)
-        all_forbidden, ast_violations, debate_report = self._validate_and_debate(
-            package, concept, concept_info
+        msg = AgentMessage(
+            intent="KNOWLEDGE_REQUEST",
+            stage="generator",
+            payload={"concept": concept, "max_revisions": max_revisions},
+            context=context,
+            from_agent="user",
         )
+        final_msg = self._knowledge_flow(msg)
 
-        # 修订循环
-        for _ in range(max_revisions):
-            if debate_report.status != "REJECTED":
-                break
-            feedback = self._build_debate_feedback(debate_report.model_dump())
-            package = self.builder.revise(
-                concept, profile, package.model_dump(), feedback
-            )
-            all_forbidden, ast_violations, debate_report = self._validate_and_debate(
-                package, concept, concept_info
-            )
+        package = self._to_dict(final_msg.payload.get("package", {}))
+        debate_report = self._to_dict(final_msg.payload.get("debate_report", {}))
+        validation = self._to_dict(final_msg.payload.get("validation", {}))
 
-        # 更新会话
-        session["last_package"] = package.model_dump()
-        session["last_debate"] = debate_report.model_dump()
+        # 同步更新会话状态
+        session["last_package"] = package
+        session["last_debate"] = debate_report
+        session["target_concept"] = concept
 
-        result = {
+        return {
             "concept": concept,
-            "package": package.model_dump(),
-            "debate_report": debate_report.model_dump(),
-            "validation": {
-                "forbidden_concepts": all_forbidden,
-                "ast_violations": ast_violations,
-            },
+            "package": package,
+            "debate_report": debate_report,
+            "validation": validation,
         }
-        self._set_cached_resource(concept, profile, result)
-        return result
 
     async def generate_resource_stream(
         self,
@@ -187,17 +113,17 @@ class AgentOrchestrator:
         concept: str,
         max_revisions: int = 1,
     ) -> AsyncIterator[Dict[str, Any]]:
-        """生成资源并执行辩论议会（异步流式版本）
+        """生成资源并执行辩论议会（异步流式版本）"""
+        context = self._session_to_context(session)
+        context["target_concept"] = concept
 
-        输出事件：
-        - {"type": "progress", "stage": "builder", "message": "..."}
-        - {"type": "progress", "stage": "validation", "message": "..."}
-        - {"type": "progress", "stage": "debate", "message": "..."}
-        - {"type": "complete", "concept": ..., "package": ..., "debate_report": ..., "validation": ...}
-
-        若辩论议会 REJECTED，会根据建议自动修订（默认最多 1 轮）。
-        已生成并审核通过的资源会被缓存，命中时直接返回。
-        """
+        msg = AgentMessage(
+            intent="KNOWLEDGE_REQUEST",
+            stage="generator",
+            payload={"concept": concept, "max_revisions": max_revisions},
+            context=context,
+            from_agent="user",
+        )
 
         async def emit(stage: str, message: str, payload: Optional[Dict[str, Any]] = None):
             event: Dict[str, Any] = {"type": "progress", "stage": stage, "message": message}
@@ -205,245 +131,253 @@ class AgentOrchestrator:
                 event.update(payload)
             yield event
 
-        profile = session.get("profile", {})
+        # 1. 路径规划
+        async for e in emit("navigator", f"正在规划「{concept}」的学习路径..."):
+            yield e
+        nav_msg = await asyncio.to_thread(self.navigator.run, msg.with_stage("navigator"))
+        path = nav_msg.payload.get("path", [concept])
+        async for e in emit("navigator", f"学习路径：{' → '.join(path)}"):
+            yield e
 
-        cached = self._get_cached_resource(concept, profile)
-        if cached:
-            async for e in emit("cache", "命中资源缓存，直接使用已审核通过的资源。"):
-                yield e
-            session["last_package"] = cached["package"]
-            session["last_debate"] = cached["debate_report"]
-            yield {"type": "complete", **cached}
-            async for e in emit("complete", "资源生成流程全部完成（缓存命中）。", cached):
-                yield e
-            return
-
+        # 2. 资源生成
         async for e in emit("builder", f"正在为「{concept}」生成个性化教学资源..."):
             yield e
-        # Builder 中的 LLM 调用是同步阻塞的，用 to_thread 避免阻塞事件循环
-        package = await asyncio.to_thread(self.builder.run, concept, profile)
+        gen_msg = await asyncio.to_thread(self.generator.run, msg.with_stage("generator"))
+        package = gen_msg.payload.get("package", {})
         async for e in emit(
             "builder",
-            f"教学资源生成完成，包含 {len(package.document)} 字讲解文档、{len(package.exercises)} 道练习题。",
+            f"教学资源生成完成，包含 {len(package.get('document', ''))} 字讲解文档。",
         ):
             yield e
 
-        graph = get_graph_store()
-        concept_info = await asyncio.to_thread(graph.get_concept, concept)
-        concept_info = concept_info or {}
-
-        # 校验 + 辩论
-        forbidden = await asyncio.to_thread(graph.check_forbidden_concepts, package.document, concept)
-        ast_violations = await asyncio.to_thread(
-            self.validator.validate_code_blocks, package.document, concept
+        # 3. 辩论审核
+        async for e in emit("debate", "正在提交辩论议会审核..."):
+            yield e
+        review_msg = AgentMessage(
+            intent="KNOWLEDGE_REQUEST",
+            stage="reviewer",
+            payload={"package": package, "action": "review"},
+            context=context,
+            from_agent="generator",
         )
-        all_forbidden = list(set(forbidden + ast_violations))
-        if all_forbidden:
-            async for e in emit(
-                "validation",
-                f"检测到 {len(all_forbidden)} 个潜在问题：{', '.join(all_forbidden[:5])}",
-            ):
-                yield e
-        else:
-            async for e in emit("validation", "神经符号校验通过，未发现超纲或语法问题。"):
-                yield e
-
-        debate_report = await asyncio.to_thread(
-            self.debate_council.debate, package, concept_info, all_forbidden
-        )
-
-        # 修订循环
-        for revision in range(max_revisions):
-            if debate_report.status != "REJECTED":
-                break
-            async for e in emit(
-                "revision",
-                f"辩论议会建议修订，正在进行第 {revision + 1} 轮优化...",
-            ):
-                yield e
-            feedback = self._build_debate_feedback(debate_report.model_dump())
-            package = await asyncio.to_thread(
-                self.builder.revise, concept, profile, package.model_dump(), feedback
-            )
-            forbidden = await asyncio.to_thread(graph.check_forbidden_concepts, package.document, concept)
-            ast_violations = await asyncio.to_thread(
-                self.validator.validate_code_blocks, package.document, concept
-            )
-            all_forbidden = list(set(forbidden + ast_violations))
-            if all_forbidden:
-                async for e in emit(
-                    "validation",
-                    f"修订后检测到 {len(all_forbidden)} 个潜在问题：{', '.join(all_forbidden[:5])}",
-                ):
-                    yield e
-            else:
-                async for e in emit("validation", "修订后神经符号校验通过。"):
-                    yield e
-            debate_report = await asyncio.to_thread(
-                self.debate_council.debate, package, concept_info, all_forbidden
-            )
-
+        review_result = await asyncio.to_thread(self.reviewer.run, review_msg)
+        debate_report = review_result.payload.get("debate_report", {})
+        validation = review_result.payload.get("validation", {})
+        review_mode = review_result.payload.get("review_mode", "full")
         async for e in emit(
             "debate",
-            f"辩论议会结束，最终状态：{debate_report.status}，共 {len(debate_report.rounds)} 轮。",
-            {"debate_report": debate_report.model_dump()},
+            f"辩论议会结束（{review_mode} 模式），最终状态：{debate_report.get('status')}。",
+            {"debate_report": debate_report},
         ):
             yield e
 
-        # 更新会话
-        session["last_package"] = package.model_dump()
-        session["last_debate"] = debate_report.model_dump()
+        # 4. 更新会话
+        session["last_package"] = package
+        session["last_debate"] = debate_report
+        session["target_concept"] = concept
 
         result = {
             "concept": concept,
-            "package": package.model_dump(),
-            "debate_report": debate_report.model_dump(),
-            "validation": {
-                "forbidden_concepts": all_forbidden,
-                "ast_violations": ast_violations,
-            },
+            "package": package,
+            "debate_report": debate_report,
+            "validation": validation,
+            "review_mode": review_mode,
         }
-        self._set_cached_resource(concept, profile, result)
-
         yield {"type": "complete", **result}
         async for e in emit("complete", "资源生成流程全部完成。", result):
             yield e
 
-    def _handle_code_help(self, session: dict, message: str, profile: dict) -> AgentResponse:
-        """处理代码求助"""
-        concept = session.get("target_concept", "当前知识点")
+    # ------------------------------------------------------------------
+    # 消息路由
+    # ------------------------------------------------------------------
+    def _route(self, msg: AgentMessage) -> AgentMessage:
+        """按意图路由到对应流程"""
+        intent = msg.intent
+        if intent == "KNOWLEDGE_REQUEST":
+            return self._knowledge_flow(msg)
+        if intent == "CODE_HELP":
+            return self._tutor_flow(msg)
+        if intent == "PROGRESS_CHECK":
+            return self._evaluate_flow(msg)
+        if intent == "PATH_ADJUST":
+            return self._path_adjust_flow(msg)
+        # 默认聊天
+        return self._safe_run(self.profiler, msg)
+
+    def _knowledge_flow(self, msg: AgentMessage) -> AgentMessage:
+        """学习新知识流程：Generator -> Reviewer -> Evaluator"""
+        concept = msg.payload.get("concept") or self._extract_concept(msg.payload.get("message", "")) or msg.context.get("target_concept")
+        if not concept:
+            return msg.reply({
+                "message": "你想学习哪个 Python 知识点呢？比如：变量与赋值、for循环、函数定义等。",
+                "suggestions": ["变量与赋值", "for循环", "函数定义", "文件操作", "类与对象"],
+            }, stage="profiler", from_agent="Profiler")
+
+        msg = msg.with_payload(concept=concept).with_context(target_concept=concept)
+
+        # 路径规划
+        nav_msg = msg.with_stage("navigator")
+        nav_result = self._safe_run(self.navigator, nav_msg)
+        path = nav_result.payload.get("path", [concept])
+
+        # 资源生成
+        gen_msg = msg.with_stage("generator")
+        gen_result = self._safe_run(self.generator, gen_msg)
+        package = gen_result.payload.get("package")
+        if not package:
+            return msg.reply({"error": "资源生成失败"}, from_agent="Generator")
+
+        # 审核
+        review_msg = AgentMessage(
+            intent=msg.intent,
+            stage="reviewer",
+            payload={"package": package, "action": "review"},
+            context=msg.context,
+            from_agent="Generator",
+        )
+        review_result = self._safe_run(self.reviewer, review_msg)
+
+        # 返回给前端的响应
+        return msg.reply(
+            {
+                "message": f"已为你生成「{concept}」的个性化学习资源，包含讲解文档、思维导图、练习题和代码案例。",
+                "concept": concept,
+                "path": path,
+                "package": package,
+                "debate_report": review_result.payload.get("debate_report", {}),
+                "validation": review_result.payload.get("validation", {}),
+                "review_mode": review_result.payload.get("review_mode", "full"),
+            },
+            stage="reviewer",
+            from_agent="Reviewer",
+        )
+
+    def _tutor_flow(self, msg: AgentMessage) -> AgentMessage:
+        """代码求助流程：Reviewer.tutor"""
+        user_msg = msg.payload.get("message", "")
+        concept = msg.context.get("target_concept", "当前知识点")
+
         # 从消息中简单提取代码块
-        import re
-        code_match = re.search(r"```python\s*(.*?)\s*```", message, re.DOTALL)
+        code_match = re.search(r"```python\s*(.*?)\s*```", user_msg, re.DOTALL)
         code = code_match.group(1) if code_match else "# 学生未提供代码"
-        error_match = re.search(r"错误[：:]\s*(.+)", message)
+        error_match = re.search(r"错误[：:]\s*(.+)", user_msg)
         error = error_match.group(1) if error_match else "请描述你遇到的错误"
 
-        socratic = self.socrates.run(error, code, concept, profile)
+        tutor_msg = AgentMessage(
+            intent=msg.intent,
+            stage="tutor",
+            payload={"error_message": error, "code": code, "concept": concept},
+            context=msg.context,
+            from_agent="user",
+        )
+        result = self._safe_run(self.reviewer, tutor_msg)
+        socratic = result.payload
 
-        return AgentResponse(
-            agent_name="Socrates",
-            response_type="tutoring",
-            content={
-                "message": socratic["question"],
+        return msg.reply(
+            {
+                "message": socratic.get("question", "你遇到了什么问题？"),
                 "hint": socratic.get("hint"),
                 "can_provide_answer": socratic.get("can_provide_answer", False),
                 "stage": socratic.get("stage"),
             },
-            profile_update=profile,
+            stage="tutor",
+            from_agent="Socrates",
         )
 
-    def _handle_knowledge_request(
-        self, session: dict, message: str, profile: dict
-    ) -> AgentResponse:
-        """处理学习请求"""
-        # 提取目标知识点（简化：先用关键词，后续可用 LLM NER）
-        target_concept = self._extract_concept(message) or session.get("target_concept")
-        if not target_concept:
-            return AgentResponse(
-                agent_name="Profiler",
-                response_type="chat",
-                content={
-                    "message": "你想学习哪个 Python 知识点呢？比如：变量与赋值、for循环、函数定义等。",
-                    "suggestions": ["变量与赋值", "for循环", "函数定义", "文件操作", "类与对象"],
-                },
-                profile_update=profile,
+    def _evaluate_flow(self, msg: AgentMessage) -> AgentMessage:
+        """进度查询流程：Reviewer.evaluate"""
+        concept = msg.context.get("target_concept", "当前知识点")
+
+        eval_msg = AgentMessage(
+            intent=msg.intent,
+            stage="evaluator",
+            payload={
+                "concept": concept,
+                "exercise_results": msg.payload.get("exercise_results", []),
+                "code_runs": msg.payload.get("code_runs", []),
+            },
+            context=msg.context,
+            from_agent="user",
+        )
+        result = self._safe_run(self.reviewer, eval_msg)
+        evaluation = result.payload
+
+        return msg.reply(
+            {
+                "message": evaluation.get("summary", "学习效果评估完成。"),
+                "weak_points": evaluation.get("weak_points", []),
+                "heatmap": evaluation.get("heatmap", {}),
+                "next_recommendation": evaluation.get("next_recommendation", ""),
+            },
+            stage="evaluator",
+            from_agent="Evaluator",
+        )
+
+    def _path_adjust_flow(self, msg: AgentMessage) -> AgentMessage:
+        """路径调整流程：重新导航"""
+        user_msg = msg.payload.get("message", "")
+        concept = self._extract_concept(user_msg) or msg.context.get("target_concept")
+        if not concept:
+            return msg.reply({
+                "message": "你想调整到哪个知识点呢？",
+                "suggestions": ["变量与赋值", "for循环", "函数定义"],
+            }, from_agent="Navigator")
+
+        return self._knowledge_flow(msg.with_payload(concept=concept).with_context(target_concept=concept))
+
+    # ------------------------------------------------------------------
+    # 工具方法
+    # ------------------------------------------------------------------
+    def _safe_run(self, agent: BaseAgent, msg: AgentMessage) -> AgentMessage:
+        """带异常熔断的 Agent 调用"""
+        try:
+            return agent.run(msg)
+        except Exception as e:
+            # 降级：返回错误信息，不影响主流程
+            return msg.reply(
+                {"error": f"{agent.name} 执行失败: {str(e)}", "fallback": True},
+                stage=msg.stage,
+                from_agent=agent.name,
             )
 
-        session["target_concept"] = target_concept
+    def _session_to_context(self, session: dict) -> Dict[str, Any]:
+        """将 session 转为 AgentMessage context"""
+        return {
+            "session_id": session.get("session_id", ""),
+            "user_id": session.get("user_id", ""),
+            "profile": session.get("profile", {}),
+            "dialogue_history": session.get("dialogue_history", []),
+            "target_concept": session.get("target_concept"),
+        }
 
-        # Navigator 规划路径
-        nav_result = self.navigator.run(target_concept, profile)
-
-        # 返回路径建议，前端可选择是否生成资源
+    def _to_agent_response(self, msg: AgentMessage) -> AgentResponse:
+        """将 AgentMessage 转为前端需要的 AgentResponse"""
         return AgentResponse(
-            agent_name="Navigator",
-            response_type="path_plan",
-            content={
-                "message": f"我识别到你想学习「{target_concept}」。为你规划了学习路径：{' → '.join(nav_result['path'])}，预计耗时 {nav_result['estimated_minutes']} 分钟。",
-                "target_concept": target_concept,
-                "suggested_path": nav_result["path"],
-                "estimated_minutes": nav_result["estimated_minutes"],
-                "next_action": "generate_resource",
-            },
-            profile_update=profile,
+            agent_name=msg.from_agent,
+            response_type=msg.stage,
+            content=msg.payload,
+            profile_update=msg.context.get("profile"),
         )
 
-    def _handle_path_adjust(
-        self, session: dict, message: str, profile: dict
-    ) -> AgentResponse:
-        """处理路径调整请求（如跳过、换题）"""
-        return AgentResponse(
-            agent_name="Navigator",
-            response_type="path_plan",
-            content={
-                "message": "已收到你的调整请求，我会重新规划学习路径。",
-                "next_action": "recalculate_path",
-            },
-            profile_update=profile,
-        )
-
-    def _handle_progress_check(self, session: dict, profile: dict) -> AgentResponse:
-        """处理进度查询"""
-        mastered = profile.get("mastered_concepts", [])
-        return AgentResponse(
-            agent_name="Evaluator",
-            response_type="evaluation",
-            content={
-                "message": f"你已经掌握了 {len(mastered)} 个知识点：{', '.join(mastered[:5])}{'...' if len(mastered) > 5 else ''}。",
-                "mastered_count": len(mastered),
-                "mastered_concepts": mastered,
-            },
-            profile_update=profile,
-        )
+    def _classify_intent(self, message: str) -> str:
+        """识别学生意图（简化版，未来可交给 Profiler 或 LLM）"""
+        msg = message.lower()
+        if any(w in msg for w in ["学", "讲", "教", "什么是", "怎么", "如何做"]):
+            return "KNOWLEDGE_REQUEST"
+        if any(w in msg for w in ["错", "报错", "bug", "error", "运行不了"]):
+            return "CODE_HELP"
+        if any(w in msg for w in ["进度", "学得怎么样", "掌握", "测试"]):
+            return "PROGRESS_CHECK"
+        if any(w in msg for w in ["跳过", "下一个", "换", "不想学"]):
+            return "PATH_ADJUST"
+        return "CHAT"
 
     def _extract_concept(self, message: str) -> Optional[str]:
-        """从消息中提取知识点（简化关键词匹配）
-
-        TODO: [待完成] 替换为 LLM NER 或语义匹配
-        """
-        concept_keywords = {
-            "变量": "变量与赋值",
-            "赋值": "变量与赋值",
-            "数据类型": "基本数据类型",
-            "类型": "基本数据类型",
-            "运算符": "运算符",
-            "输入": "输入与输出",
-            "输出": "输入与输出",
-            "print": "输入与输出",
-            "input": "输入与输出",
-            "条件": "条件语句",
-            "if": "条件语句",
-            "for": "for循环",
-            "循环": "for循环",
-            "while": "while循环",
-            "嵌套": "嵌套循环",
-            "列表": "列表",
-            "字典": "字典",
-            "元组": "元组",
-            "集合": "集合",
-            "字符串": "字符串操作",
-            "函数": "函数定义与调用",
-            "参数": "函数参数",
-            "作用域": "变量作用域",
-            "递归": "递归函数",
-            "文件": "文件操作",
-            "异常": "异常处理",
-            "错误": "常见异常类型",
-            "类": "类与对象",
-            "对象": "类与对象",
-            "继承": "继承与多态",
-            "math": "math模块",
-            "random": "random模块",
-            "datetime": "datetime模块",
-            "os": "os模块",
-            "csv": "CSV文件处理",
-            "json": "JSON文件处理",
-            "推导式": "列表推导式",
-            "生成器": "生成器",
-            "装饰器": "装饰器",
-        }
-        for keyword, concept in concept_keywords.items():
-            if keyword in message:
-                return concept
+        """从消息中提取目标知识点（简化关键词匹配）"""
+        keywords = ["变量与赋值", "for循环", "while循环", "函数定义", "类与对象",
+                    "文件操作", "异常处理", "列表推导式", "字典操作", "字符串操作",
+                    "条件语句", "模块导入", "递归", "装饰器", "生成器"]
+        for kw in keywords:
+            if kw in message:
+                return kw
         return None

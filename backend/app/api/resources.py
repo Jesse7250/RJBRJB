@@ -13,6 +13,7 @@ TODO:
 """
 import json
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
@@ -87,11 +88,21 @@ def _stage_to_status(stage: str) -> str:
     return mapping.get(stage, "generating")
 
 
+def _model_to_dict(obj: Any) -> Any:
+    """将 Pydantic 模型或模型列表转为 dict"""
+    from pydantic import BaseModel
+    if isinstance(obj, BaseModel):
+        return obj.model_dump()
+    if isinstance(obj, list):
+        return [_model_to_dict(item) for item in obj]
+    return obj
+
+
 def _persist_resource_and_debate(task_id: str, session_id: str, result: dict):
     """将生成结果持久化到 resource 和 debate_record 表"""
     concept = result.get("concept", "")
-    package = result.get("package", {})
-    debate_report = result.get("debate_report", {})
+    package = _model_to_dict(result.get("package", {}))
+    debate_report = _model_to_dict(result.get("debate_report", {}))
 
     resource_id = str(uuid.uuid4())
     debate_id = str(uuid.uuid4())

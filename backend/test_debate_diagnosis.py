@@ -5,8 +5,14 @@ import sys
 os.environ["GRAPH_BACKEND"] = "memory"
 os.environ["LLM_PROVIDER"] = "deepseek"
 
-from app.agents.builder import BuilderAgent
-from app.agents.debate_council import DebateCouncil, ExpertAgent, TeacherAgent, StudentSimAgent, GuardianAgent
+from app.agents.generator import GeneratorAgent
+from app.agents.reviewer.debate_council import (
+    DebateCouncil,
+    ExpertReviewer,
+    GuardianReviewer,
+    StudentReviewer,
+    TeacherReviewer,
+)
 from app.services.graph_factory import get_graph_store
 from app.services.neuro_symbolic import NeuroSymbolicValidator
 
@@ -25,10 +31,10 @@ def main():
     }
 
     print("=" * 70)
-    print("[1/3] Builder 生成资源")
+    print("[1/3] Generator 生成资源")
     print("=" * 70)
-    builder = BuilderAgent()
-    package = builder.run(concept, profile)
+    generator = GeneratorAgent()
+    package = generator.generate(concept, profile)
     print(f"概念: {package.concept}")
     print(f"文档长度: {len(package.document)}")
     print(f"文档前 500 字:\n{package.document[:500]}...")
@@ -41,13 +47,13 @@ def main():
     forbidden = constraints.get("forbidden_concepts", [])
 
     print("=" * 70)
-    print("[2/3] 各 Agent 独立审核（打印原始回复）")
+    print("[2/3] 各审核视角独立输出（打印原始回复）")
     print("=" * 70)
 
-    expert = ExpertAgent()
-    teacher = TeacherAgent()
-    student = StudentSimAgent()
-    guardian = GuardianAgent()
+    expert = ExpertReviewer()
+    teacher = TeacherReviewer()
+    student = StudentReviewer()
+    guardian = GuardianReviewer()
 
     agents = [
         ("Expert", expert, lambda a: a.review(package, concept_info)),
