@@ -1,17 +1,27 @@
 """资源生成结果持久化缓存
 
-用途：
-- 避免对同一知识点/画像重复调用 LLM，降低成本与延迟。
-- 进程重启后缓存不丢失。
+对应需求：
+- 避免对同一知识点/相似画像重复调用 LLM，降低调用成本与响应延迟。
+- 保证进程重启后缓存不丢失，提升系统启动后的首次响应速度。
 
-实现：
-- 使用与 sessions 相同的 SQLite 数据库，新增 `resource_cache` 表。
+主要类/函数/接口：
+- _ensure_table：懒加载创建 resource_cache 表与索引。
+- make_cache_key：基于知识点与画像关键字段生成稳定缓存 key。
+- get_cached_resource：读取缓存并执行 TTL 过期清理。
+- set_cached_resource：仅对辩论通过（PASSED/MODIFIED）的结果写入缓存。
+- clear_cache / get_cache_stats：缓存清空与统计。
+
+实现说明：
+- 使用与会话相同的 SQLite 数据库，新增 `resource_cache` 表。
 - key = 知识点 + 画像关键字段哈希。
 - 仅缓存辩论状态为 PASSED/MODIFIED 的资源。
 
 TODO:
-- [待完成] 增加 TTL/过期策略，避免旧缓存长期占用。
-- [待完成] 未来可迁移到 Redis。
+- [已完成] 基于知识点与画像关键字段的缓存 key 生成。
+- [已完成] 缓存读写、TTL 过期清理与统计接口。
+- [已完成] 仅缓存辩论通过/修改后的资源，避免缓存低质量结果。
+- [待完成] 增加更细粒度的 TTL/过期策略（按知识点热度、版本号变化失效）。
+- [待完成] 未来可迁移到 Redis，以支持分布式部署与更高并发。
 """
 import hashlib
 import json

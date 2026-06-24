@@ -1,5 +1,21 @@
+/**
+ * 需求：前端与后端 REST/SSE 通信层。
+ * 功能：
+ *   - 配置 axios 实例与统一 baseURL；
+ *   - 定义会话、图谱、资源相关接口类型与 API 方法；
+ *   - 封装流式接口（chatStream / generateStream）供组件消费。
+ * 主要类型：
+ *   - SessionResponse / AgentResponse / GraphData / ChatRequest
+ * TODO:
+ *  - [已完成] 基础 REST 接口封装
+ *  - [已完成] SSE 流式接口封装
+ *  - [待完成] 统一错误处理与重试机制
+ *  - [待完成] 请求/响应拦截器（token、日志、loading）
+ *  - [待完成] 类型细化（any 替换为具体结构）
+ */
 import axios from 'axios'
 
+// axios 实例，baseURL 与后端 /api 前缀对齐
 const api = axios.create({
   baseURL: '/api',
   headers: {
@@ -49,6 +65,7 @@ export interface GraphData {
   }>
 }
 
+// 会话相关接口：创建、画像、统计、对话（含 SSE）
 export const sessionApi = {
   create: (target_concept?: string) =>
     api.post<SessionResponse>('/sessions/', { target_concept }),
@@ -66,6 +83,7 @@ export const sessionApi = {
     fetch(`/api/sessions/${sessionId}/chat-stream?message=${encodeURIComponent(message)}&message_type=${messageType}`),
 }
 
+// 知识图谱相关接口：全图、学习路径、概念详情
 export const graphApi = {
   getGraph: () => api.get<GraphData>('/graph/'),
   getPath: (fromConcepts: string[], toConcept: string) =>
@@ -75,6 +93,7 @@ export const graphApi = {
   getConcept: (name: string) => api.get(`/graph/concept/${name}`),
 }
 
+// 学习资源相关接口：同步生成、流式生成
 export const resourceApi = {
   generate: (concept: string, profile?: any) =>
     api.post('/resources/generate', null, { params: { concept, profile } }),

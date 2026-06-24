@@ -1,3 +1,25 @@
+/**
+ * 需求：个性化学习资源生成与展示。
+ * 功能：
+ *   - 接收知识点，调用后端多智能体流式生成资源包（讲义/导图/练习/代码案例）；
+ *   - 分阶段展示生成进度（构建/校验/辩论/完成）；
+ *   - 以标签页形式展示文档、思维导图、练习题、辩论审核报告；
+ *   - 支持代码案例与练习题一键运行到沙箱、自动判题。
+ * 主要 props：
+ *   - sessionId：当前会话 ID，资源生成需要绑定会话。
+ * 主要 hooks/函数：
+ *   - generate：发起 SSE 流式资源生成，并在失败时回退到同步接口；
+ *   - runJudge：将练习题代码提交后端判题；
+ *   - runInSandbox：将代码写入沙箱 store 并打开沙箱标签；
+ *   - mermaid 渲染：将后端返回的导图文本渲染为 SVG。
+ * TODO:
+ *  - [已完成] 流式资源生成与进度展示
+ *  - [已完成] 文档/导图/练习/审核四标签页
+ *  - [已完成] 练习自动判题与沙箱运行
+ *  - [待完成] 认知风格（视觉/听觉/动觉）差异化渲染
+ *  - [待完成] 辩论报告可视化增强（投票分布/修改对比）
+ *  - [待完成] 资源收藏、历史记录与分享
+ */
 import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import ReactMarkdown from 'react-markdown'
@@ -82,6 +104,7 @@ interface ResourceResult {
   }
 }
 
+// 资源生成的四个阶段，用于 Stepper 与进度展示
 const STAGES = [
   { key: 'builder', label: '构建资源', icon: Sparkles },
   { key: 'validation', label: '校验内容', icon: CheckCircle },
@@ -89,6 +112,7 @@ const STAGES = [
   { key: 'complete', label: '生成完成', icon: BookOpen },
 ]
 
+// 各阶段对应的粗略进度值
 const STAGE_PROGRESS: Record<string, number> = {
   builder: 20,
   validation: 60,
@@ -96,6 +120,7 @@ const STAGE_PROGRESS: Record<string, number> = {
   complete: 100,
 }
 
+// 解析 SSE data: {...} 行，失败或非 data 行返回 null
 function parseSSE(line: string): any | null {
   if (!line.startsWith('data: ')) return null
   try {
@@ -120,6 +145,7 @@ export function ResourceViewer({ sessionId }: Props) {
 
   const activeStageIndex = STAGES.findIndex((s) => s.key === currentStage)
 
+  // 发起 SSE 流式资源生成；若流式未返回完整结果，回退到同步接口
   const generate = async (targetConcept?: string) => {
     if (!sessionId) {
       alert('会话尚未初始化，请稍后再试')
@@ -156,10 +182,12 @@ export function ResourceViewer({ sessionId }: Props) {
           const event = parseSSE(line.trim())
           if (!event) continue
 
+          // 更新进度消息、阶段与进度条
           if (event.type === 'progress') {
             setProgressMessage(event.message || '')
             setCurrentStage(event.stage || currentStage)
             setProgressValue(STAGE_PROGRESS[event.stage] || 50)
+          // 资源生成完成，保存结果
           } else if (event.type === 'complete') {
             finalResource = event as ResourceResult
             setResource(finalResource)
@@ -170,6 +198,7 @@ export function ResourceViewer({ sessionId }: Props) {
         }
       }
 
+      // 流式接口未返回完整结果时的兜底同步请求
       if (!finalResource) {
         const res = await api.post('/resources/generate-for-session/default', null, {
           params: { concept: conceptToGenerate },
@@ -185,6 +214,7 @@ export function ResourceViewer({ sessionId }: Props) {
     }
   }
 
+  // 监听 eduhive:generate-resource 全局事件，支持从 ChatPanel 触发资源生成
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as { concept?: string } | undefined
@@ -194,6 +224,7 @@ export function ResourceViewer({ sessionId }: Props) {
     return () => window.removeEventListener('eduhive:generate-resource', handler)
   }, [sessionId])
 
+  // 使用 mermaid 将后端返回的导图文本渲染为 SVG
   useEffect(() => {
     if (!mindmapRef.current || !resource?.package.mindmap) return
 
@@ -211,11 +242,13 @@ export function ResourceViewer({ sessionId }: Props) {
     render()
   }, [resource?.package.mindmap])
 
+  // 将代码写入沙箱 store 并切换至沙箱标签
   const runInSandbox = (code: string) => {
     setSandboxCode(code)
     window.dispatchEvent(new CustomEvent('eduhive:open-sandbox'))
   }
 
+  // 提交练习题代码到后端进行判题
   const runJudge = async (idx: number, exercise: Exercise) => {
     const code = exerciseCodes[idx] ?? exercise.starter_code ?? ''
     if (!code) return
@@ -235,6 +268,7 @@ export function ResourceViewer({ sessionId }: Props) {
     }
   }
 
+  // 根据辩论报告最终状态返回对应图标
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'PASSED':
@@ -248,6 +282,7 @@ export function ResourceViewer({ sessionId }: Props) {
     }
   }
 
+  // 根据单轮投票结果返回 Badge 配色
   const getVerdictColor = (verdict: string) => {
     switch (verdict) {
       case 'PASS':
@@ -264,7 +299,7 @@ export function ResourceViewer({ sessionId }: Props) {
 
   return (
     <div className="space-y-4">
-      {/* Input CTA */}
+      {/* 知识点输入与生成按钮 */}
       <GlassCard delay={0} hover={false} className="p-1">
         <div className="flex gap-2 rounded-xl bg-gradient-to-r from-indigo-500/5 to-violet-500/5 p-2">
           <input
@@ -285,7 +320,7 @@ export function ResourceViewer({ sessionId }: Props) {
         </div>
       </GlassCard>
 
-      {/* Loading progress */}
+      {/* 生成中进度条与阶段指示器 */}
       {loading && (
         <motion.div
           initial={{ opacity: 0, y: 8 }}
@@ -301,7 +336,7 @@ export function ResourceViewer({ sessionId }: Props) {
         </motion.div>
       )}
 
-      {/* Resource content */}
+      {/* 资源内容标签页：文档/导图/练习/审核 */}
       {resource && (
         <Tabs defaultValue="document" className="w-full">
           <TabsList className="grid h-auto w-full grid-cols-2 gap-1 rounded-2xl border border-slate-200/80 bg-slate-100/70 p-1 sm:grid-cols-4">

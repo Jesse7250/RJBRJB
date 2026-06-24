@@ -1,14 +1,24 @@
 """LLM 提供层
 
-支持两种模式：
-1. SparkLLM：真实调用讯飞星火 API（需配置 API Key）
-2. MockLLM：本地模拟返回，用于无 API 时的开发与测试
+对应需求/功能：
+- 为所有 Agent 提供统一的大模型调用抽象，屏蔽底层不同 LLM 提供商的差异。
+- 支持 DeepSeek、讯飞星火真实 API 调用，以及本地 MockLLM 用于无 API 时的开发与测试。
+- 通过环境变量 LLM_PROVIDER 或配置项切换 provider，默认 auto 按优先级选择。
 
-通过环境变量 LLM_PROVIDER=spark|mock 切换，默认 auto（有 Key 用 Spark，否则 Mock）。
+主要类/函数：
+- BaseLLM：LLM 抽象基类，定义 chat / achat / achat_stream 接口。
+- DeepSeekLLMProvider：DeepSeek（OpenAI 兼容协议）实现，支持同步、异步与流式。
+- SparkLLMProvider：讯飞星火实现，当前仅支持同步调用。
+- MockLLMProvider：本地模拟 LLM，根据 system prompt 关键词返回结构化占位内容。
+- get_llm_provider()：工厂函数，按环境变量/配置自动选择 LLM 实现。
 
 TODO:
+- [已完成] DeepSeek 同步/异步/流式调用已实现
+- [已完成] 讯飞星火同步调用已实现
+- [已完成] MockLLM 按任务类型返回占位内容已实现
+- [已完成] auto 模式按 DeepSeek → 讯飞星火 → Mock 的优先级选择已实现
 - [待完成] 接入讯飞星火 4.5 Max / Spark Pro 双模型策略
-- [待完成] 实现流式输出（SSE/WebSocket）
+- [待完成] 实现真正的流式 chunk 返回（当前 Spark/Mock 为一次性返回）
 - [待完成] 添加 LLM 调用日志、重试、降级机制
 - [待完成] 接入讯飞 iFlyCode 辅助代码生成
 - [待完成] 使用 function calling / JSON Schema 强制结构化输出
@@ -37,7 +47,7 @@ class BaseLLM(ABC):
     async def achat_stream(
         self, messages: List[dict], temperature: float = 0.7, max_tokens: int = 4096
     ) -> AsyncIterator[str]:
-        """默认流式：一次性返回全部内容
+        """默认流式：当前为兼容实现，一次性返回全部内容
 
         TODO: [待完成] 实现真正的流式 chunk 返回
         """
@@ -93,17 +103,17 @@ class MockLLMProvider(BaseLLM):
         self.call_count += 1
         prompt = messages[-1]["content"] if messages else ""
 
-        # 识别知识点
+        # 从 prompt 中尝试提取当前知识点，用于生成占位内容
         concept = "Python 知识点"
         for line in prompt.split("\n"):
             if "知识点" in line and "「" in line and "」" in line:
                 concept = line.split("「")[1].split("」")[0]
                 break
 
-        # 根据 system prompt 判断任务类型
+        # 根据 system prompt 判断任务类型，返回对应占位数据
         system = messages[0]["content"].lower() if messages else ""
 
-        # 辩论 Agent 的 system prompt 更具体，优先判断
+        # 辩论/审核视角的 system prompt 更具体，优先判断
         if "技术专家" in system:
             return self._expert_review(concept, prompt)
         if "教育学专家" in system or "教学法" in system:
@@ -233,6 +243,7 @@ def get_llm_provider() -> BaseLLM:
     settings = get_settings()
     provider = os.environ.get("LLM_PROVIDER", settings.LLM_PROVIDER or "auto").lower()
 
+    # 显式指定 provider
     if provider == "deepseek":
         return DeepSeekLLMProvider()
     if provider == "spark":
@@ -240,6 +251,7 @@ def get_llm_provider() -> BaseLLM:
     if provider == "mock":
         return MockLLMProvider()
 
+    # auto 模式：按 API Key 可用性自动选择
     if provider == "auto":
         if settings.DEEPSEEK_API_KEY:
             return DeepSeekLLMProvider()

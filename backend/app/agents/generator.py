@@ -1,7 +1,28 @@
 """Generator Agent：多模态学习资源生成
 
-由 BuilderAgent 演进而来，职责更清晰：只负责生成教学资源，不参与审核。
-对外统一通过 AgentMessage 通信。
+对应需求/功能：
+- 根据学生画像与知识图谱约束，生成个性化 Python 教学资源包。
+- 资源类型包括：概念讲解文档（Markdown）、思维导图（Mermaid）、编程练习题、
+  可运行代码案例、语音讲解文本。
+- 由 BuilderAgent 演进而来，职责更清晰：只负责生成教学资源，不参与审核。
+
+主要类/函数：
+- GeneratorAgent.run(message)：统一入口，从 AgentMessage 中提取 concept 和 profile，
+  返回包含 ResourcePackage 的 AgentMessage。
+- GeneratorAgent.generate(concept, profile)：核心生成逻辑，调用 LLM 并解析 JSON。
+- GeneratorAgent.revise(...)：根据 Reviewer/DebateCouncil 的反馈修订资源包。
+- _build_prompt / _build_revision_prompt：构造生成/修订 Prompt。
+- _extract_json / _fallback_parse：LLM 输出解析与兜底拆分。
+- _generate_mindmap：基于前置依赖和关联知识点生成简单 Mermaid 图。
+- BuilderAgent = GeneratorAgent：为兼容旧导入保留别名。
+
+TODO:
+- [已完成] 5 类教学资源生成已实现
+- [已完成] JSON 解析失败兜底与 Mermaid 思维导图回退已实现
+- [已完成] 根据反馈修订资源 revise() 已实现
+- [待完成] 接入真正的 TTS 服务生成音频文件 URL
+- [待完成] 接入代码执行器自动验证生成的代码案例可运行性
+- [待完成] 使用 JSON Schema / function calling 强制结构化输出，减少解析失败
 """
 import json
 import re
@@ -41,6 +62,7 @@ class GeneratorAgent(BaseAgent):
 
     def run(self, message: AgentMessage) -> AgentMessage:
         """统一入口：从 AgentMessage 中提取 concept 和 profile，生成资源"""
+        # 优先从 payload 取 concept，其次从上下文中取目标知识点
         concept = message.payload.get("concept") or message.context.get("target_concept")
         profile = message.context.get("profile", {})
         if not concept:
@@ -57,11 +79,12 @@ class GeneratorAgent(BaseAgent):
         prompt = self._build_prompt(concept, concept_info, profile)
         raw = self.think(prompt)
 
-        # 解析 JSON
+        # 尝试从 LLM 输出中解析 JSON；失败则使用兜底拆分
         parsed = self._extract_json(raw)
         if not parsed:
             parsed = self._fallback_parse(concept, raw)
 
+        # 用解析结果构造 ResourcePackage，缺失字段提供合理默认值
         package = ResourcePackage(
             concept=concept,
             document=parsed.get("document", raw),
@@ -134,7 +157,7 @@ class GeneratorAgent(BaseAgent):
 代码中若涉及 Windows 路径或反斜杠，请使用原始字符串 r'...' 或正斜杠，避免转义错误。"""
 
     def _extract_json(self, text: str) -> Optional[Dict[str, Any]]:
-        """从 LLM 输出中提取 JSON"""
+        """从 LLM 输出中提取 JSON：先直接解析，再尝试 markdown 代码块，最后匹配任意 {}"""
         try:
             return json.loads(text)
         except json.JSONDecodeError:
@@ -155,7 +178,7 @@ class GeneratorAgent(BaseAgent):
 
     def _fallback_parse(self, concept: str, raw: str) -> Dict[str, Any]:
         """JSON 解析失败时，按规则拆分内容"""
-        # 提取所有代码块
+        # 兜底：提取所有 Python 代码块，前两个作为案例，其余作为练习题
         code_blocks = re.findall(r"```python\s*(.*?)\s*```", raw, re.DOTALL)
 
         exercises = []
@@ -183,7 +206,7 @@ class GeneratorAgent(BaseAgent):
         }
 
     def _generate_mindmap(self, concept: str, concept_info: dict) -> str:
-        """生成简单思维导图"""
+        """基于前置依赖和关联知识点生成简单 Mermaid 思维导图"""
         prerequisites = concept_info.get("prerequisites", [])
         related = concept_info.get("related", [])
         lines = ["graph TD"]

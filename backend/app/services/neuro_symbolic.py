@@ -1,9 +1,34 @@
 """神经符号认知架构 - 约束与校验层
 
+对应需求：
+- 将大模型（神经网络）的生成能力与知识图谱（符号系统）的约束结合，
+  减少教学资源生成中的幻觉与超纲内容。
+- 在生成前通过 GraphRAG 向 Prompt 注入知识约束；
+  生成后通过 AST 与未学概念检测校验结果。
+
+主要类/函数/接口：
+- NeuroSymbolicValidator：神经符号融合校验器。
+  - get_concept_constraints：从知识图谱获取某知识点的约束（前置知识、难度、
+    预计时长、易错点、禁止概念等）。
+  - _compute_forbidden_concepts：计算当前知识点未学过的概念集合。
+  - build_constrained_prompt：结合画像与约束构造结构化 Prompt。
+  - _sanitize_code：清理 LLM 生成代码中的常见反斜杠/行续格式错误，便于 AST 校验。
+  - validate_code_blocks：提取 Markdown 中的 Python 代码块，检查语法、
+    未授权导入与未学概念。
+  - validate_resource：完整校验入口，汇总超纲概念与代码违规。
+
 三层防幻觉机制：
-1. GraphRAG 知识锚定：从知识图谱获取约束，注入 Prompt
-2. 生成后校验：AST 解析 + 未学概念检测
-3. Guardian 安全过滤：由辩论议会执行
+1. GraphRAG 知识锚定：从知识图谱获取约束，注入 Prompt；
+2. 生成后校验：AST 解析 + 未学概念检测；
+3. Guardian 安全过滤：由辩论议会执行（见业务层调用方）。
+
+TODO:
+- [已完成] 知识约束提取与 Prompt 注入。
+- [已完成] 代码块 AST 语法检查、导入白名单与未学概念检测。
+- [已完成] 代码反斜杠/行续格式清理，避免 Windows 路径导致的 AST 误报。
+- [待完成] 增加更多代码风格与运行正确性校验（如执行示例代码）。
+- [待完成] 支持动态更新知识约束（根据学生实时掌握度调整前置知识假设）。
+- [待完成] 与辩论议会深度集成，将校验结果作为议员投票依据。
 """
 import ast
 import re
@@ -97,7 +122,7 @@ class NeuroSymbolicValidator:
 所有代码必须是可运行的Python代码。"""
 
     def _sanitize_code(self, code: str) -> str:
-        r"""清理 LLM 生成的常见格式错误
+        r"""清理 LLM 生成的常见格式错误（仅用于校验，不回写展示内容）
 
         主要处理：
         1. 反斜杠后带有空格或换行导致的 line continuation 错误。

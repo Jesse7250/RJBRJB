@@ -1,8 +1,27 @@
 """Profiler Agent：对话式学生画像构建
 
+对应需求/功能：
+- 通过自然语言对话自动推断和更新学生画像，避免让学生感受到被测试。
+- 画像维度包括：知识水平、认知场依存/独立、认知模态、学习节奏、目标导向、
+  常见错误模式、已掌握知识点等。
+- 同时承担简单的意图识别，供 Orchestrator 做路由决策。
+
+主要类/函数：
+- ProfilerAgent.run(message)：统一入口，根据用户消息更新画像并返回回复。
+- ProfilerAgent._infer_profile(...)：核心推断逻辑，调用 LLM 并做规则兜底。
+- _build_prompt：构造画像推断 Prompt。
+- _extract_json：解析 LLM 返回的 JSON 画像。
+- _rule_based_inference：基于关键词的规则兜底推断。
+- _merge_profile：合并新旧画像，保留已有值。
+- _classify_intent：基于关键词的意图分类。
+- _generate_response：根据意图生成自然语言回复。
+
 TODO:
+- [已完成] 对话式画像推断与更新已实现
+- [已完成] LLM 输出 JSON 解析与规则兜底已实现
+- [已完成] 基于关键词的意图分类已实现
 - [待完成] 引入更科学的认知风格量表对话流程
-- [待完成] 基于学习行为数据动态更新画像（不仅是对话）
+- [待完成] 基于学习行为数据动态更新画像（当前仅部分在 sessions.py 中实现）
 - [待完成] 增加隐性知识诊断嵌入策略
 - [待完成] 使用 LLM function calling 强制输出 JSON
 """
@@ -44,6 +63,7 @@ class ProfilerAgent(BaseAgent):
 
         result = self._infer_profile(user_message, current_profile, dialogue_history)
 
+        # 将更新后的画像写回上下文，供后续 Agent 使用
         new_context = {**message.context, "profile": result["profile"]}
         return AgentMessage(
             intent=result["intent"],
@@ -70,19 +90,19 @@ class ProfilerAgent(BaseAgent):
         prompt = self._build_prompt(message, current_profile, dialogue_history)
         raw = self.think(prompt)
 
-        # 尝试解析 JSON
+        # 尝试解析 JSON；失败则使用规则兜底推断
         profile_update = self._extract_json(raw)
         if not profile_update:
             profile_update = self._rule_based_inference(message, current_profile)
 
-        # 合并画像
+        # 合并画像：保留已有值，用新值覆盖
         merged = self._merge_profile(current_profile, profile_update)
         profile = StudentProfile(**merged)
 
-        # 识别意图
+        # 识别意图，供 Orchestrator 路由
         intent = self._classify_intent(message)
 
-        # 生成回复
+        # 根据意图生成自然语言回复
         response_message = self._generate_response(message, intent, profile)
 
         return {
@@ -98,6 +118,7 @@ class ProfilerAgent(BaseAgent):
         current_profile: Dict[str, Any],
         dialogue_history: List[Dict[str, str]],
     ) -> str:
+        # 只取最近 6 轮对话，避免 Prompt 过长
         history_text = "\n".join(
             [f"{t['role']}: {t['content']}" for t in dialogue_history[-6:]]
         )
@@ -142,7 +163,7 @@ class ProfilerAgent(BaseAgent):
         """
         update: Dict[str, Any] = {}
 
-        # 认知风格推断
+        # 认知模态推断：学生偏好通过何种感官通道学习
         if any(w in message for w in ["图", "看", "视觉", "展示"]):
             update["cognitive_modality"] = "visual"
         elif any(w in message for w in ["听", "语音", "讲", "说"]):
@@ -150,6 +171,7 @@ class ProfilerAgent(BaseAgent):
         elif any(w in message for w in ["写", "跑", "试", "练"]):
             update["cognitive_modality"] = "kinesthetic"
 
+        # 认知场依存/独立推断：学生是否依赖外部引导
         if any(w in message for w in ["对吗", "是不是", "确认", "步骤"]):
             update["cognitive_field"] = "dependent"
         elif any(w in message for w in ["我试试", "我觉得", "想自己", "探索"]):
@@ -190,7 +212,7 @@ class ProfilerAgent(BaseAgent):
         return merged
 
     def _classify_intent(self, message: str) -> str:
-        """识别学生意图
+        """识别学生意图（关键词匹配，未来可交给 LLM）
 
         TODO: [待完成] 使用 LLM 做更准确的意图分类
         """

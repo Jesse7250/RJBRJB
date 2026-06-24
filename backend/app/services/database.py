@@ -1,14 +1,29 @@
 """SQLite 持久化与学习行为日志
 
-提供：
-1. 会话与画像持久化
-2. 学习行为事件记录（chat、resource_generated、exercise_submitted、code_executed）
-3. 简单的学习行为统计接口
+对应需求：
+- 为系统提供轻量级持久化层，保存学习会话、画像、生成任务、资源、
+  辩论记录、代码提交、掌握度、认知风格证据与资源反馈。
+- 记录学习行为事件，支撑后续画像更新与知识熔炉优化。
+
+主要类/函数/接口：
+- _db_path / get_db / init_db：数据库路径解析、连接获取与表结构初始化。
+- create_user / get_user：用户账号持久化（供认证模块使用）。
+- create_session / get_session / update_session：学习会话 CRUD。
+- log_event / get_session_events / get_session_stats：事件记录与统计。
+- 资源生成：create_generation_task、update_generation_task、get/list。
+- 资源：create_resource、get_resource、find_resource_by_concept。
+- 版本演进：create_resource_version、get_resource_versions（知识熔炉）。
+- 辩论与提交：create_debate_record、create_code_submission 等。
+- 掌握度与画像：update_mastery_state、add_cognitive_evidence、
+  add_resource_feedback 及对应统计接口。
 
 TODO:
-- [待完成] 未来可迁移到 PostgreSQL
-- [待完成] 增加用户表和认证
-- [待完成] 增加索引优化查询
+- [已完成] 会话、用户、事件、资源生成任务、资源、版本、辩论记录、代码提交、
+  掌握度、认知证据、资源反馈等表的初始化与 CRUD。
+- [已完成] 基于 sqlite_utils 的索引创建。
+- [待完成] 迁移到 PostgreSQL，以支持高并发与复杂查询。
+- [待完成] 增加用户表与认证流程的完整集成（当前 user 表仅做基础存储）。
+- [待完成] 增加更多复合索引优化高频查询（session+concept、event_type+created_at 等）。
 """
 import json
 import os

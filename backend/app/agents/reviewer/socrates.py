@@ -1,4 +1,23 @@
-"""苏格拉底式辅导模块（Reviewer 内部子能力）"""
+"""苏格拉底式辅导模块（Reviewer 内部子能力）
+
+对应需求/功能：
+- 当学生遇到代码错误时，不直接给出答案，而是通过引导式提问帮助学生自主发现问题。
+- 根据学生代码、错误信息、当前知识点和画像生成苏格拉底式问题。
+
+主要类/函数：
+- SocratesTutor.run(message)：统一入口，提取必要信息并返回提问结果。
+- SocratesTutor.generate_question(...)：根据当前提问阶段生成引导性问题。
+- _extract_json：解析 LLM 返回的 JSON。
+- _fallback_question：LLM 解析失败时的模板化兜底问题。
+
+TODO:
+- [已完成] 5 阶段提问链（clarification → assumption_probe → evidence_check →
+  counter_example → convergence）已实现
+- [已完成] 根据提问深度控制 can_provide_answer 已实现
+- [已完成] JSON 解析失败模板兜底已实现
+- [待完成] 记录学生回答以推进下一轮提问深度
+- [待完成] 结合画像调整提问风格与难度
+"""
 import json
 import re
 from typing import Any, Dict, Optional
@@ -38,6 +57,7 @@ class SocratesTutor(BaseAgent):
 
     def generate_question(self, error_message: str, code: str, concept: str,
                           profile: Dict[str, Any], depth: int = 0) -> Dict[str, Any]:
+        # 提问阶段随深度递进，最大到 convergence
         stages = [
             "clarification",
             "assumption_probe",
@@ -61,9 +81,11 @@ class SocratesTutor(BaseAgent):
         raw = self.think(prompt)
         result = self._extract_json(raw)
 
+        # 解析失败则使用模板兜底
         if not result:
             result = self._fallback_question(stage, concept, error_message)
 
+        # 确保必要字段存在：阶段、是否允许直接给答案
         result.setdefault("stage", stage)
         result.setdefault("can_provide_answer", depth >= 3)
         result["raw"] = raw

@@ -1,11 +1,27 @@
 """资源生成 API
 
-支持两种模式：
-1. 同步生成：POST /generate-for-session/{session_id}（兼容旧接口，测试用）
-2. 流式生成：GET /stream-generate?session_id=xxx&concept=xxx（SSE，推荐生产环境）
+对应需求/功能：
+- 为前端提供教学资源生成接口，支持同步生成与 SSE 流式生成两种模式。
+- 同步接口用于兼容旧代码和测试；流式接口用于生产环境，实时返回
+  Navigator / Builder / Debate / Complete 等阶段进度。
+- 生成结果会持久化到 resource 和 debate_record 表，并更新会话状态。
+
+主要接口：
+- POST /api/resources/generate：同步生成某个知识点的资源。
+- POST /api/resources/generate-for-session/{session_id}：为指定会话同步生成资源（兼容旧接口）。
+- GET /api/resources/stream-generate：SSE 流式生成资源并返回进度。
+
+主要函数：
+- _get_or_create_session：从内存缓存或 SQLite 获取/创建会话。
+- _save_session：保存会话到内存和 SQLite。
+- _stage_to_status：将 SSE stage 映射为任务状态。
+- _model_to_dict：Pydantic 模型/列表转 dict。
+- _persist_resource_and_debate：将生成结果持久化到数据库。
 
 TODO:
+- [已完成] 同步资源生成接口已实现
 - [已完成] 资源生成改为异步任务 + SSE 流式返回进度
+- [已完成] 生成结果持久化到 resource / debate_record 表已实现
 - [待完成] 接入 Redis 缓存已辩论通过的资源，避免重复调用 LLM
 - [待完成] 生成真正的 TTS 音频文件并返回 URL
 - [待完成] 增加生成超时熔断与重试机制
@@ -39,16 +55,16 @@ def _get_or_create_session(request: Request, session_id: str | None = None):
     sessions_db = request.app.state.sessions_db
 
     if session_id:
-        # 先查内存缓存
+        # 先查内存缓存，命中则直接返回
         if session_id in sessions_db:
             return sessions_db[session_id]
-        # 再查 SQLite
+        # 再查 SQLite，命中后回填内存缓存
         row = get_session(session_id)
         if row:
             sessions_db[session_id] = row
             return row
 
-    # 创建默认会话
+    # 未找到则创建默认会话
     session = {
         "session_id": session_id or "default",
         "user_id": "default",
@@ -76,7 +92,7 @@ def _save_session(request: Request, session: dict):
 
 
 def _stage_to_status(stage: str) -> str:
-    """将 SSE stage 映射为任务状态"""
+    """将 SSE stage 映射为任务状态，便于前端展示"""
     mapping = {
         "cache": "completed",
         "builder": "generating",
@@ -107,6 +123,7 @@ def _persist_resource_and_debate(task_id: str, session_id: str, result: dict):
     resource_id = str(uuid.uuid4())
     debate_id = str(uuid.uuid4())
 
+    # 辩论通过或修改通过则标记为 approved，否则 rejected
     create_resource(
         resource_id=resource_id,
         task_id=task_id,
@@ -142,12 +159,13 @@ async def generate_resource(concept: str, request: Request):
     session_id = session["session_id"]
     task_id = str(uuid.uuid4())
 
+    # 创建生成任务记录
     create_generation_task(task_id, session_id, concept, status="pending")
 
     orchestrator = AgentOrchestrator()
     result = orchestrator.generate_resource(session, concept)
 
-    # 持久化生成结果
+    # 持久化生成结果并更新任务状态
     resource_id, debate_id = _persist_resource_and_debate(task_id, session_id, result)
     update_generation_task(
         task_id,
@@ -228,7 +246,7 @@ async def stream_generate_resource(session_id: str, concept: str, request: Reque
             async for event in orchestrator.generate_resource_stream(
                 session, concept
             ):
-                # 根据事件更新任务状态
+                # 根据事件类型更新生成任务状态
                 event_type = event.get("type")
                 if event_type == "progress":
                     stage = event.get("stage", "generating")
@@ -244,6 +262,7 @@ async def stream_generate_resource(session_id: str, concept: str, request: Reque
                 # SSE 格式：每个事件以 data: 开头，以两个换行结束
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
+                # 记录完整结果，用于 finally 中持久化
                 if event_type == "complete":
                     final_result = event
         except Exception as e:
@@ -256,7 +275,7 @@ async def stream_generate_resource(session_id: str, concept: str, request: Reque
             )
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
         finally:
-            # 持久化生成结果
+            # 生成结束后持久化结果到 resource / debate_record
             if final_result:
                 try:
                     resource_id, debate_id = _persist_resource_and_debate(

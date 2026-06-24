@@ -1,9 +1,25 @@
 """应用配置
 
+对应需求：
+- 集中管理智学蜂巢后端的所有环境变量与运行时配置。
+- 通过 pydantic-settings 从 .env 文件加载，并提供类型安全访问。
+
+主要类/函数/接口：
+- Settings：应用配置模型，覆盖 LLM、图存储、数据库、缓存、安全、CORS 等。
+  - DeepSeek / 讯飞星火 API 配置。
+  - LLM_PROVIDER：模型提供者选择（deepseek / spark / mock / auto）。
+  - GRAPH_BACKEND：图存储后端选择（auto / neo4j / memory）。
+  - Neo4j / SQLite 配置。
+  - SECRET_KEY / DEBUG / CORS_ORIGINS 等应用级配置。
+  - cors_origin_list：将 CORS_ORIGINS 字符串解析为列表。
+- get_settings：带 lru_cache 的配置获取函数，避免重复解析 .env。
+
 TODO:
-- [待完成] 生产环境需更换 SECRET_KEY 与强密码
-- [待完成] 补充讯飞 API 额度监控告警配置
-- [待完成] 增加日志级别、请求限流等运行时配置
+- [已完成] 基于 pydantic-settings 的 .env 加载与配置项定义。
+- [已完成] LLM 提供者、图后端、数据库、缓存等核心配置项。
+- [待完成] 生产环境需更换 SECRET_KEY 与强密码，禁止使用默认弱密钥。
+- [待完成] 补充讯飞 API 额度监控告警配置。
+- [待完成] 增加日志级别、请求限流、超时熔断等运行时配置项。
 """
 from functools import lru_cache
 from typing import List

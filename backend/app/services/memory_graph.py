@@ -1,12 +1,25 @@
 """内存知识图谱实现
 
-从 data/knowledge_graph.cypher 解析知识点和依赖关系，存入内存。
-用于没有 Neo4j 的运行环境（如开发/测试）。
+对应需求：
+- 在无 Neo4j 的运行环境（开发/测试/单机部署）中提供知识图谱能力。
+- 从 data/knowledge_graph.cypher 解析知识点、依赖关系与易错点，存入内存。
+
+主要类/函数/接口：
+- MemoryGraph：GraphStore 的内存实现。
+  - _load_cypher / _parse_props / _split_props / _parse_value：
+    简易 Cypher 解析器，仅支持本项目用到的 CREATE 节点与关系语句。
+  - get_concept / get_all_concepts / get_prerequisites：知识点查询。
+  - get_learning_path：基于 BFS 计算最短学习路径。
+  - check_forbidden_concepts：检测内容中是否包含未学/超纲概念。
+  - get_dependency_graph：返回邻接表，供上层算法使用。
 
 TODO:
-- [待完成] 当前为简易 Cypher 解析器，仅支持本项目用到的语句
-- [待完成] 支持更复杂的 Cypher 语法（属性类型、关系属性等）
-- [待完成] 增加图算法（A*、PageRank、相似度）
+- [已完成] 从 Cypher 文件解析 Concept、Pitfall、PREREQUISITE_OF、HAS_PITFALL。
+- [已完成] 知识点查询、前置依赖、后续知识与易错点组装。
+- [已完成] 基于 BFS 的最短学习路径与超纲概念检测。
+- [待完成] 当前为简易 Cypher 解析器，仅支持本项目用到的语句。
+- [待完成] 支持更复杂的 Cypher 语法（属性类型、关系属性、WHERE 等）。
+- [待完成] 增加图算法：A* 路径规划（考虑难度与画像）、PageRank、相似度。
 """
 import os
 import re
@@ -194,14 +207,11 @@ class MemoryGraph(GraphStore):
         return [dict(self.pitfalls[pid]) for pid in pids if pid in self.pitfalls]
 
     def get_learning_path(self, from_concepts: List[str], to_concept: str) -> List[str]:
-        """基于 BFS 的最短路径
-
-        TODO: [待完成] 替换为 A* 算法，考虑难度与画像
-        """
+        """基于 BFS 的最短路径（当前为贪心最短路径，未来可替换为 A*）"""
         if to_concept in from_concepts:
             return [to_concept]
 
-        # 找到从任一已掌握节点到目标节点的最短路径（沿依赖关系正向）
+        # 找到从任一已掌握节点到目标节点的最短路径（沿 PREREQUISITE_OF 正向）
         best_path: Optional[List[str]] = None
         for start in from_concepts:
             if start not in self.concepts:

@@ -1,12 +1,29 @@
 """DeepSeek API 封装（OpenAI 兼容协议）
 
-使用 httpx 直接调用，无需 openai 官方库，兼容 Python 3.13+。
-支持：
-1. 同步/异步非流式调用
-2. 同步/异步流式调用（SSE）
-3. 多轮对话上下文
+对应需求：
+- 为智学蜂巢提供大模型调用能力，支撑教学资源生成、对话辅导等 Agent。
+- 使用 httpx 直接调用 OpenAI 兼容协议，无需官方 SDK，兼容 Python 3.13+。
+
+主要类/函数/接口：
+- DeepSeekMessage：统一消息结构（role / content）。
+- DeepSeekLLM：模型封装类。
+  - chat / achat：同步/异步非流式调用。
+  - chat_stream / achat_stream：同步/异步流式调用（SSE 解析）。
+  - _build_payload / _parse_sse_line / _headers：内部请求构造与 SSE 解析。
+
+支持能力：
+1. 同步/异步非流式调用；
+2. 同步/异步流式调用（SSE）；
+3. 多轮对话上下文。
 
 文档参考：https://platform.deepseek.com/api-docs/
+
+TODO:
+- [已完成] 同步/异步非流式与流式调用封装。
+- [已完成] SSE 数据行解析与错误兼容。
+- [待完成] 增加 token 用量统计与成本监控。
+- [待完成] 增加模型调用重试、超时降级与熔断机制。
+- [待完成] 支持 function calling / structured output，用于资源结构化生成。
 """
 import json
 from typing import AsyncIterator, Iterator, List
@@ -67,7 +84,8 @@ class DeepSeekLLM:
         line = line.strip()
         if not line or not line.startswith("data: "):
             return None
-        data = line[6:]  # 去掉 "data: " 前缀
+        # 去掉 "data: " 前缀后解析 JSON，取第一个 choice 的 delta.content
+        data = line[6:]
         if data == "[DONE]":
             return None
         try:

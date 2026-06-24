@@ -1,4 +1,25 @@
-"""Pydantic 数据模型"""
+"""Pydantic 数据模型
+
+对应需求：
+- 定义智学蜂巢前后端交互的请求体、响应体与内部数据结构。
+- 通过 Pydantic 提供校验、序列化与 OpenAPI 文档生成能力。
+
+主要模型分类：
+1. 对话与会话：ChatMessage、StudentProfile、SessionCreate/Response、ChatRequest、
+   EventLogRequest。
+2. 资源生成：ResourceType、ResourcePackage、GenerationTask、Resource、ResourceVersion。
+3. 辩论议会：DebateRound、DebateReport、AgentResponse。
+4. 知识图谱：GraphNode、GraphEdge、GraphData。
+5. 代码与掌握度：CodeSubmission、MasteryState、HeatmapData。
+6. 画像与反馈：CognitiveEvidence、ResourceFeedback、ResourceFeedbackStats。
+
+TODO:
+- [已完成] 核心业务模型的字段定义与基础校验规则。
+- [已完成] 资源生成任务、版本演进、辩论、提交、掌握度、反馈等扩展模型。
+- [待完成] 为复杂字段补充更严格的校验（如 concept 命名规则、JSON 字段结构）。
+- [待完成] 增加共享的自定义校验器与错误提示信息。
+- [待完成] 拆分单文件为按业务模块组织的多个 schema 文件，提升可维护性。
+"""
 from typing import Any, Dict, List, Optional
 from uuid import UUID, uuid4
 
@@ -97,9 +118,7 @@ class GraphData(BaseModel):
     edges: List[GraphEdge]
 
 
-# =============================================================================
-# 新增：资源生成任务与资源模型
-# =============================================================================
+# 资源生成任务与资源模型（知识熔炉输出）
 
 class GenerationTask(BaseModel):
     task_id: str
@@ -142,9 +161,7 @@ class ResourceVersion(BaseModel):
     created_at: Optional[str] = None
 
 
-# =============================================================================
-# 新增：代码提交与掌握度模型
-# =============================================================================
+# 代码提交与掌握度模型（学习行为评估）
 
 class CodeSubmission(BaseModel):
     submission_id: str
@@ -173,9 +190,7 @@ class HeatmapData(BaseModel):
     p_known: float
 
 
-# =============================================================================
-# 新增：认知风格证据与资源反馈模型
-# =============================================================================
+# 认知风格证据与资源反馈模型（画像迭代与知识熔炉数据来源）
 
 class CognitiveEvidence(BaseModel):
     id: Optional[int] = None

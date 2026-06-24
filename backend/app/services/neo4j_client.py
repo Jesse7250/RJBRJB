@@ -1,10 +1,27 @@
 """Neo4j 知识图谱服务
 
+对应需求：
+- 在生产环境中使用 Neo4j 持久化存储知识点、依赖关系与易错点。
+- 提供与 MemoryGraph 一致的接口，供上层业务无感知调用。
+
+主要类/函数/接口：
+- Neo4jClient：GraphStore 的 Neo4j 实现。
+  - __init__ / close：驱动创建与关闭。
+  - init_schema：创建唯一约束（Concept.name、Pitfall.id）。
+  - clear_all / run_cypher：数据清空与自定义查询（谨慎使用）。
+  - get_concept / get_all_concepts / get_prerequisites：知识点查询。
+  - get_learning_path：基于 shortestPath 计算学习路径。
+  - check_forbidden_concepts：检测内容中是否包含超纲概念。
+- get_neo4j_client：全局单例工厂。
+
 TODO:
-- [待完成] 在 Docker Compose 中确保 Neo4j 服务启动并导入种子数据
-- [待完成] 实现 A* 路径规划（当前为 shortestPath）
-- [待完成] 支持图嵌入计算与向量索引
-- [待完成] 增加 Neo4j 查询性能优化与连接池配置
+- [已完成] Neo4j 驱动封装与 GraphStore 接口实现。
+- [已完成] 知识点、前置依赖、后续知识与易错点查询。
+- [已完成] 基于 shortestPath 的最短路径计算与超纲概念检测。
+- [待完成] 在 Docker Compose 中确保 Neo4j 服务启动并导入种子数据。
+- [待完成] 实现 A* 路径规划（当前为 shortestPath），综合考虑学生画像与难度。
+- [待完成] 支持图嵌入计算与向量索引。
+- [待完成] 增加 Neo4j 查询性能优化与连接池配置。
 """
 from typing import List, Optional
 
@@ -101,10 +118,7 @@ class Neo4jClient(GraphStore):
             return [dict(record) for record in result]
 
     def get_learning_path(self, from_concepts: List[str], to_concept: str) -> List[str]:
-        """基于最短路径计算学习路径
-
-        TODO: [待完成] 替换为 A* 算法，考虑学生画像与难度
-        """
+        """基于最短路径计算学习路径（当前使用 Neo4j shortestPath）"""
         with self.driver.session() as session:
             if to_concept in from_concepts:
                 return [to_concept]

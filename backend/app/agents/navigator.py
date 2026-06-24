@@ -1,9 +1,22 @@
 """Navigator Agent：学习路径规划
 
+对应需求/功能：
+- 基于知识图谱前置依赖与学生已掌握知识点，规划从当前状态到目标知识点的最优学习路径。
+- 先由图存储计算拓扑路径，再由 LLM 基于画像做教学化调整与推荐理由生成。
+
+主要类/函数：
+- NavigatorAgent.run(message)：统一入口，提取 concept 和 profile，返回规划结果。
+- NavigatorAgent._plan_path(...)：核心规划逻辑，包括图路径计算、LLM 教学化调整、
+  去重、时长估算。
+- _extract_json：解析 LLM 返回的 JSON 路径结果。
+
 TODO:
-- [待完成] 实现 A* 算法替代当前 BFS/shortestPath
+- [已完成] 基于知识图谱前置依赖计算学习路径已实现
+- [已完成] LLM 教学化路径调整与推荐理由生成已实现
+- [已完成] 路径去重、目标补全、时长估算已实现
+- [待完成] 实现 A* 算法替代当前 BFS/shortestPath（图存储层）
 - [待完成] 接入 BKT（贝叶斯知识追踪）动态更新掌握度
-- [待完成] 根据学生画像调整路径难度与顺序
+- [待完成] 根据学生画像调整路径难度与顺序（当前仅做了 Prompt 提示）
 - [待完成] 支持多目标知识点路径规划
 """
 import json
@@ -44,10 +57,10 @@ class NavigatorAgent(BaseAgent):
         graph = get_graph_store()
         mastered = profile.get("mastered_concepts", [])
 
-        # 从知识图谱计算路径
+        # 从知识图谱计算拓扑路径（当前底层为 shortestPath/BFS）
         graph_path = graph.get_learning_path(mastered, target_concept)
 
-        # 让 LLM 基于图谱路径做教学化调整
+        # 让 LLM 基于图谱路径做教学化调整，并生成推荐理由
         prompt = f"""目标知识点：{target_concept}
 学生已掌握：{mastered}
 知识图谱推荐路径：{graph_path}
@@ -65,6 +78,7 @@ class NavigatorAgent(BaseAgent):
         raw = self.think(prompt)
         llm_result = self._extract_json(raw)
 
+        # 如果 LLM 返回了有效路径则采用，否则回退到图谱路径
         if llm_result and "path" in llm_result:
             path = llm_result["path"]
         else:
@@ -74,7 +88,7 @@ class NavigatorAgent(BaseAgent):
         if target_concept not in path:
             path = path + [target_concept]
 
-        # 去重
+        # 去重：保持顺序的同时移除重复知识点
         seen = set()
         unique_path = []
         for p in path:
@@ -82,7 +96,7 @@ class NavigatorAgent(BaseAgent):
                 seen.add(p)
                 unique_path.append(p)
 
-        # 计算预计时长
+        # 根据每个知识点的预计学习时长累加得到总时长
         concept_details = [graph.get_concept(c) for c in unique_path]
         estimated = sum(c.get("estimated_time", 30) for c in concept_details if c)
 

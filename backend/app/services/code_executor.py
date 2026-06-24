@@ -1,13 +1,28 @@
 """Python 代码执行器（本地安全沙箱）
 
-用于后端自动判题。当前采用 subprocess 隔离 + 超时限制，
-未来可切换为 Docker 沙箱以支持第三方库。
+对应需求：
+- 后端自动判题：执行学生提交的 Python 代码，并与期望输出比对。
+- 在本地提供轻量级安全隔离，防止恶意代码破坏服务器。
+
+主要类/函数/接口：
+- CodeExecutionError：执行阶段异常标识。
+- CodeExecutor：安全执行器核心类。
+  - validate：基于 AST 静态检查未授权导入、禁止调用与危险语法。
+  - execute：在临时文件中通过 subprocess 运行代码并收集输出。
+  - judge：调用 execute 并对比期望输出，支持完全匹配与逐行忽略空白匹配。
 
 安全策略：
-1. 超时 5 秒
-2. 只允许标准库导入
-3. 禁止文件写操作（通过 AST 静态检查）
-4. 在临时文件中执行，执行后删除
+1. 超时 5 秒；
+2. 只允许标准库导入；
+3. 禁止文件写操作（通过 AST 静态检查）；
+4. 在临时文件中执行，执行后删除。
+
+TODO:
+- [已完成] 基于 AST 的静态安全检查（导入白名单、禁止调用、危险语法）。
+- [已完成] 临时文件执行、超时控制与输出捕获。
+- [已完成] 输出比对：完全匹配 / 逐行忽略首尾空白。
+- [待完成] 切换到 Docker 沙箱，以支持第三方库并提供更强隔离。
+- [待完成] 增加资源限制（CPU/内存）与更细粒度的执行环境控制。
 """
 import ast
 import os
@@ -103,6 +118,7 @@ class CodeExecutor:
                 "violations": violations,
             }
 
+        # 将代码写入临时文件，使用系统默认 python 解释器执行
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".py", delete=False, encoding="utf-8"
         ) as f:
@@ -110,6 +126,7 @@ class CodeExecutor:
             temp_path = f.name
 
         try:
+            # 通过子进程运行代码，达到与主进程隔离的效果
             result = subprocess.run(
                 ["python", temp_path],
                 capture_output=True,

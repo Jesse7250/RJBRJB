@@ -1,11 +1,31 @@
 """讯飞星火大模型 API 封装
 
-支持：
-1. 流式对话生成
-2. 非阻塞同步调用
-3. 多轮对话上下文
+对应需求：
+- 为智学蜂巢提供备选大模型调用能力，在国内网络环境下作为 DeepSeek 的 fallback。
+- 支持流式对话生成与非阻塞同步调用。
+
+主要类/函数/接口：
+- SparkMessage：统一消息结构（role / content）。
+- SparkLLM：讯飞星火模型封装类。
+  - _build_auth_url：基于 HMAC-SHA256 构造带鉴权签名的 WebSocket URL。
+  - _build_payload：构造符合讯飞协议的请求体。
+  - chat：同步非流式调用（内部复用流式生成并拼接结果）。
+  - chat_stream：同步流式调用，通过 websocket 在线程中接收并实时 yield chunk。
+  - achat / achat_stream：异步包装，方便在 FastAPI 异步路由中调用。
+
+支持能力：
+1. 流式对话生成；
+2. 非阻塞同步调用；
+3. 多轮对话上下文。
 
 文档参考：https://www.xfyun.cn/doc/spark/Web.html
+
+TODO:
+- [已完成] WebSocket 鉴权、payload 构造与同步流式调用。
+- [已完成] 异步接口包装（基于 run_in_executor）。
+- [待完成] 增加 token 用量统计、错误码映射与重试机制。
+- [待完成] 优化 chat_stream 的类型标注（当前标注为 str，实际返回生成器）。
+- [待完成] 支持星火 v4.0 多模态与 function calling 能力。
 """
 import base64
 import hashlib
@@ -177,7 +197,7 @@ class SparkLLM:
         wst.daemon = True
         wst.start()
 
-        # 实时 yield 已经收到的 chunk
+        # 在 websocket 后台线程接收消息的同时，实时 yield 已收到的 chunk
         last_yielded = 0
         while not finished.is_set() or last_yielded < len(response_chunks):
             while last_yielded < len(response_chunks):

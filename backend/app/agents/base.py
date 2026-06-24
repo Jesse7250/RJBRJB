@@ -1,9 +1,23 @@
 """Agent 基类与统一消息协议
 
-所有 Agent 通过 AgentMessage 进行通信，便于：
-1. Orchestrator 统一路由和编排
-2. 未来平滑引入 LangGraph 等图编排框架
-3. 统一超时、熔断、日志和降级处理
+对应需求/功能：
+- 为智学蜂巢多智能体系统定义统一的 Agent 抽象与消息格式。
+- 所有 Agent（Profiler / Navigator / Generator / Reviewer / Orchestrator）
+  通过 AgentMessage 进行通信，便于 Orchestrator 统一路由、状态传递与后续
+  接入 LangGraph 等图编排框架。
+
+主要类/接口：
+- AgentMessage：Pydantic 模型，定义 Agent 间统一消息协议，包含 intent、stage、
+  payload、context、metadata 及链式更新方法（with_payload / with_context /
+  with_stage / reply）。
+- BaseAgent：所有 Agent 的抽象基类，提供 system_prompt、LLM 实例、think()
+  调用入口和 _format_context() 工具方法；子类必须实现 run(message)。
+
+TODO:
+- [已完成] AgentMessage 统一消息协议已实现
+- [已完成] BaseAgent 基类与 think() 调用已实现
+- [待完成] 统一超时、熔断、日志和降级处理（当前仅在 Orchestrator._safe_run 中做简单降级）
+- [待完成] 接入 LangGraph / 类似图编排框架时，可能需要把 AgentMessage 扩展为节点状态
 """
 from typing import Any, Dict, Optional
 
@@ -27,21 +41,21 @@ class AgentMessage(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict, description="元数据: depth / error_count / from_cache 等")
 
     def with_payload(self, **kwargs) -> "AgentMessage":
-        """返回一个 payload 被更新的副本"""
+        """返回一个 payload 被更新的副本（保持原消息不可变，便于链式传递）"""
         new_payload = {**self.payload, **kwargs}
         return self.model_copy(update={"payload": new_payload})
 
     def with_context(self, **kwargs) -> "AgentMessage":
-        """返回一个 context 被更新的副本"""
+        """返回一个 context 被更新的副本（保持原消息不可变）"""
         new_context = {**self.context, **kwargs}
         return self.model_copy(update={"context": new_context})
 
     def with_stage(self, stage: str) -> "AgentMessage":
-        """返回一个 stage 被更新的副本"""
+        """返回一个 stage 被更新的副本，用于 Orchestrator 路由到不同 Agent"""
         return self.model_copy(update={"stage": stage})
 
     def reply(self, payload: Dict[str, Any], stage: Optional[str] = None, from_agent: Optional[str] = None) -> "AgentMessage":
-        """构造回复消息"""
+        """构造当前消息的回复消息，保留上下文与意图"""
         update = {"payload": payload, "from_agent": from_agent or self.from_agent}
         if stage:
             update["stage"] = stage
@@ -62,9 +76,10 @@ class BaseAgent:
         self.llm = llm or get_llm_provider()
 
     def think(self, user_prompt: str, context: Optional[Dict[str, Any]] = None) -> str:
-        """调用 LLM 获取回复"""
+        """调用 LLM 获取回复：system_prompt + 可选上下文 + 用户输入"""
         messages = [{"role": "system", "content": self.system_prompt}]
         if context:
+            # 将字典上下文拼接为 LLM 可读的键值对文本
             messages.append({
                 "role": "system",
                 "content": f"上下文信息：{self._format_context(context)}",

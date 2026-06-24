@@ -1,18 +1,38 @@
 """Agent Orchestrator：多智能体编排与路由（5 角色分层版）
 
-职责：
-1. 接收用户输入，识别意图
-2. 维护会话状态
-3. 按教育 SOP 在 5 个 Agent 之间路由消息
-4. 提供超时熔断与异常降级
-5. 对外保持原有接口稳定（handle_chat / generate_resource / ...）
+对应需求/功能：
+- 作为多智能体系统的总调度器，接收用户输入、维护会话状态、按教育 SOP
+  在 5 个 Agent（Profiler / Navigator / Generator / Reviewer / Orchestrator 自身）
+  之间路由消息。
+- 对外保持原有接口稳定：handle_chat、generate_resource、generate_resource_stream
+  等，供 sessions.py / resources.py 调用。
+
+主要类/函数：
+- AgentOrchestrator：核心编排器，持有各子 Agent 实例并提供对外接口。
+- handle_chat / handle_chat_stream：处理学生单轮聊天请求（同步/异步流式）。
+- generate_resource / generate_resource_stream：生成教学资源并执行辩论议会
+  （同步/异步 SSE 流式）。
+- _route：按意图选择流程（知识请求、代码求助、进度查询、路径调整、默认聊天）。
+- _knowledge_flow / _tutor_flow / _evaluate_flow / _path_adjust_flow：四类业务流。
+- _safe_run：Agent 调用异常熔断与降级。
+- _session_to_context / _to_agent_response / _classify_intent / _extract_concept：
+  会话转换、响应封装、意图/知识点识别工具。
 
 5 个执行角色：
 - Orchestrator（本类）
-- Profiler
-- Navigator
-- Generator
-- Reviewer（内部含 DebateCouncil / SocratesTutor / LearningEvaluator）
+- Profiler：画像构建
+- Navigator：路径规划
+- Generator：资源生成
+- Reviewer：审核 + 辅导 + 评估三位一体（内部含 DebateCouncil / SocratesTutor / LearningEvaluator）
+
+TODO:
+- [已完成] 5 角色分层架构与消息路由已实现
+- [已完成] 同步聊天、资源生成接口已实现
+- [已完成] 异步 SSE 流式资源生成已实现
+- [已完成] 简单异常降级（_safe_run）已实现
+- [待完成] 实现真正的超时熔断（当前仅有异常捕获）
+- [待完成] handle_chat_stream 目前仅包装同步 handle_chat，未来拆分为多步骤 thinking 事件
+- [待完成] 接入更准确的 LLM 意图分类，替代关键词匹配
 """
 import asyncio
 import re
@@ -37,6 +57,7 @@ class AgentOrchestrator:
 
     @staticmethod
     def _to_dict(obj: Any) -> Any:
+        """兼容 Pydantic 模型与普通对象的统一转字典工具"""
         if hasattr(obj, "model_dump"):
             return obj.model_dump()
         return obj
@@ -72,6 +93,7 @@ class AgentOrchestrator:
 
         当前内部仍调用同步 handle_chat，未来可拆分为多步骤 yield thinking 事件。
         """
+        # 先在线程池中运行同步 handle_chat，避免阻塞事件循环
         return await asyncio.to_thread(self.handle_chat, session, message, message_type)
 
     # ------------------------------------------------------------------
@@ -95,7 +117,7 @@ class AgentOrchestrator:
         debate_report = self._to_dict(final_msg.payload.get("debate_report", {}))
         validation = self._to_dict(final_msg.payload.get("validation", {}))
 
-        # 同步更新会话状态
+        # 同步更新会话状态，供后续对话/评估使用
         session["last_package"] = package
         session["last_debate"] = debate_report
         session["target_concept"] = concept
@@ -131,7 +153,7 @@ class AgentOrchestrator:
                 event.update(payload)
             yield event
 
-        # 1. 路径规划
+        # 1. 路径规划：调用 Navigator 获取学习路径
         async for e in emit("navigator", f"正在规划「{concept}」的学习路径..."):
             yield e
         nav_msg = await asyncio.to_thread(self.navigator.run, msg.with_stage("navigator"))
@@ -139,7 +161,7 @@ class AgentOrchestrator:
         async for e in emit("navigator", f"学习路径：{' → '.join(path)}"):
             yield e
 
-        # 2. 资源生成
+        # 2. 资源生成：调用 Generator 生成教学资源包
         async for e in emit("builder", f"正在为「{concept}」生成个性化教学资源..."):
             yield e
         gen_msg = await asyncio.to_thread(self.generator.run, msg.with_stage("generator"))
@@ -150,7 +172,7 @@ class AgentOrchestrator:
         ):
             yield e
 
-        # 3. 辩论审核
+        # 3. 辩论审核：调用 Reviewer 对资源进行多视角审核
         async for e in emit("debate", "正在提交辩论议会审核..."):
             yield e
         review_msg = AgentMessage(
@@ -171,7 +193,7 @@ class AgentOrchestrator:
         ):
             yield e
 
-        # 4. 更新会话
+        # 4. 更新会话状态，供后续聊天和评估使用
         session["last_package"] = package
         session["last_debate"] = debate_report
         session["target_concept"] = concept
@@ -201,11 +223,12 @@ class AgentOrchestrator:
             return self._evaluate_flow(msg)
         if intent == "PATH_ADJUST":
             return self._path_adjust_flow(msg)
-        # 默认聊天
+        # 默认进入聊天/画像更新流程
         return self._safe_run(self.profiler, msg)
 
     def _knowledge_flow(self, msg: AgentMessage) -> AgentMessage:
-        """学习新知识流程：Generator -> Reviewer -> Evaluator"""
+        """学习新知识流程：Navigator -> Generator -> Reviewer"""
+        # 多来源获取目标知识点：payload > 消息提取 > 上下文
         concept = msg.payload.get("concept") or self._extract_concept(msg.payload.get("message", "")) or msg.context.get("target_concept")
         if not concept:
             return msg.reply({
@@ -215,19 +238,19 @@ class AgentOrchestrator:
 
         msg = msg.with_payload(concept=concept).with_context(target_concept=concept)
 
-        # 路径规划
+        # 1. 路径规划
         nav_msg = msg.with_stage("navigator")
         nav_result = self._safe_run(self.navigator, nav_msg)
         path = nav_result.payload.get("path", [concept])
 
-        # 资源生成
+        # 2. 资源生成
         gen_msg = msg.with_stage("generator")
         gen_result = self._safe_run(self.generator, gen_msg)
         package = gen_result.payload.get("package")
         if not package:
             return msg.reply({"error": "资源生成失败"}, from_agent="Generator")
 
-        # 审核
+        # 3. 辩论审核
         review_msg = AgentMessage(
             intent=msg.intent,
             stage="reviewer",
@@ -237,7 +260,7 @@ class AgentOrchestrator:
         )
         review_result = self._safe_run(self.reviewer, review_msg)
 
-        # 返回给前端的响应
+        # 4. 返回给前端的完整响应
         return msg.reply(
             {
                 "message": f"已为你生成「{concept}」的个性化学习资源，包含讲解文档、思维导图、练习题和代码案例。",
@@ -257,7 +280,7 @@ class AgentOrchestrator:
         user_msg = msg.payload.get("message", "")
         concept = msg.context.get("target_concept", "当前知识点")
 
-        # 从消息中简单提取代码块
+        # 从消息中简单提取 Python 代码块与错误描述
         code_match = re.search(r"```python\s*(.*?)\s*```", user_msg, re.DOTALL)
         code = code_match.group(1) if code_match else "# 学生未提供代码"
         error_match = re.search(r"错误[：:]\s*(.+)", user_msg)
@@ -329,11 +352,11 @@ class AgentOrchestrator:
     # 工具方法
     # ------------------------------------------------------------------
     def _safe_run(self, agent: BaseAgent, msg: AgentMessage) -> AgentMessage:
-        """带异常熔断的 Agent 调用"""
+        """带异常熔断的 Agent 调用（当前为简单降级，尚未实现超时）"""
         try:
             return agent.run(msg)
         except Exception as e:
-            # 降级：返回错误信息，不影响主流程
+            # 降级：返回错误信息，不影响主流程继续执行
             return msg.reply(
                 {"error": f"{agent.name} 执行失败: {str(e)}", "fallback": True},
                 stage=msg.stage,
@@ -360,7 +383,7 @@ class AgentOrchestrator:
         )
 
     def _classify_intent(self, message: str) -> str:
-        """识别学生意图（简化版，未来可交给 Profiler 或 LLM）"""
+        """识别学生意图（简化关键词版，未来可交给 Profiler 或 LLM）"""
         msg = message.lower()
         if any(w in msg for w in ["学", "讲", "教", "什么是", "怎么", "如何做"]):
             return "KNOWLEDGE_REQUEST"
@@ -373,7 +396,7 @@ class AgentOrchestrator:
         return "CHAT"
 
     def _extract_concept(self, message: str) -> Optional[str]:
-        """从消息中提取目标知识点（简化关键词匹配）"""
+        """从消息中提取目标知识点（预定义关键词匹配，未来可接入 NER/LLM）"""
         keywords = ["变量与赋值", "for循环", "while循环", "函数定义", "类与对象",
                     "文件操作", "异常处理", "列表推导式", "字典操作", "字符串操作",
                     "条件语句", "模块导入", "递归", "装饰器", "生成器"]

@@ -1,3 +1,23 @@
+/**
+ * 需求：AI 学习对话面板。
+ * 功能：
+ *   - 与后端多智能体（Profiler/Planner/Tutor）进行 SSE 流式对话；
+ *   - 根据响应类型（path_plan / code / evaluation / text）渲染不同消息卡片；
+ *   - 支持快捷提示、代码一键运行到沙箱、资源生成触发。
+ * 主要 props：
+ *   - session：当前会话信息，用于发送聊天请求。
+ * 主要 hooks/函数：
+ *   - sendMessage：组装用户消息并消费 SSE 流；
+ *   - parseSSE：解析 data: ... 格式的 SSE 事件；
+ *   - MessageContent：按 response_type 渲染结构化内容。
+ * TODO:
+ *  - [已完成] 基础 SSE 流式聊天
+ *  - [已完成] 路径规划/代码/评估卡片渲染
+ *  - [已完成] 代码一键运行到沙箱
+ *  - [待完成] 流式输出 token 级打字效果
+ *  - [待完成] 消息历史持久化与滚动定位优化
+ *  - [待完成] 多轮对话上下文折叠与摘要
+ */
 import { useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import ReactMarkdown from 'react-markdown'
@@ -42,6 +62,7 @@ const QUICK_PROMPTS = [
   '出一道循环结构的练习题',
 ]
 
+// 解析 SSE data: {...} 行，失败或非 data 行返回 null
 function parseSSE(line: string): any | null {
   if (!line.startsWith('data: ')) return null
   try {
@@ -66,10 +87,12 @@ export function ChatPanel({ session }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const setSandboxCode = useSandboxStore((s) => s.setCode)
 
+  // 消息列表变化时自动滚动到底部
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
+  // 根据输入内容自适应调整 textarea 高度，最大 160px
   const adjustTextareaHeight = () => {
     const el = textareaRef.current
     if (!el) return
@@ -77,6 +100,7 @@ export function ChatPanel({ session }: Props) {
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`
   }
 
+  // 发送用户消息，消费 SSE 流并实时更新最后一条 assistant 占位消息
   const sendMessage = async (text?: string) => {
     const messageText = text ?? input
     if (!messageText.trim()) return
@@ -113,6 +137,7 @@ export function ChatPanel({ session }: Props) {
           const event = parseSSE(line.trim())
           if (!event) continue
 
+          // 流式中：更新占位消息的思考状态与代理名称
           if (event.type === 'thinking' || event.type === 'progress') {
             setMessages((prev) => {
               const last = prev[prev.length - 1]
@@ -128,6 +153,7 @@ export function ChatPanel({ session }: Props) {
               }
               return prev
             })
+          // 流式结束：用最终 AgentResponse 替换占位消息
           } else if (event.type === 'complete') {
             finalResponse = event.agent_response as AgentResponse
             setMessages((prev) => {
@@ -146,6 +172,7 @@ export function ChatPanel({ session }: Props) {
               }
               return prev
             })
+          // 后端返回错误事件，移除占位消息并展示系统提示
           } else if (event.type === 'error') {
             setMessages((prev) => [
               ...prev.slice(0, -1),
@@ -177,6 +204,7 @@ export function ChatPanel({ session }: Props) {
     }
   }
 
+  // Enter 发送，Shift + Enter 换行
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
@@ -184,15 +212,18 @@ export function ChatPanel({ session }: Props) {
     }
   }
 
+  // 触发 ResourceViewer 生成指定知识点资源
   const triggerGenerateResource = (concept: string) => {
     window.dispatchEvent(new CustomEvent('eduhive:generate-resource', { detail: { concept } }))
   }
 
+  // 将代码写入沙箱 store 并切换至沙箱标签
   const openSandboxWithCode = (code: string) => {
     setSandboxCode(code)
     window.dispatchEvent(new CustomEvent('eduhive:open-sandbox'))
   }
 
+  // 取最后一条非流式的助手消息，用于判断是否展示快捷提示
   const lastAssistant = messages.filter((m) => m.role === 'assistant' && !m.isStreaming).pop()
 
   return (
@@ -382,6 +413,7 @@ function MessageContent({
   const data = msg.data
   const responseType = data?.response_type
 
+  // 路径规划：展示推荐路径、预计时长与资源生成入口
   if (responseType === 'path_plan' && typeof data?.content === 'object') {
     const content = data.content as {
       message?: string
@@ -439,6 +471,7 @@ function MessageContent({
     )
   }
 
+  // 代码响应：渲染说明与可一键运行的代码块
   if (responseType === 'code' && typeof data?.content === 'object') {
     const content = data.content as { code?: string; message?: string }
     return (
@@ -475,6 +508,7 @@ function MessageContent({
     )
   }
 
+  // 评估响应：展示评分与学习建议
   if (responseType === 'evaluation' && typeof data?.content === 'object') {
     const content = data.content as {
       summary?: string

@@ -1,11 +1,35 @@
 """学习会话 API
 
+对应需求/功能：
+- 管理学生学习会话，包括创建、查询、列表、画像、学习事件记录、聊天与评估。
+- 会话数据使用 SQLite 持久化，并通过内存缓存加速读取。
+- 聊天接口支持同步返回和 SSE 流式输出，调用 AgentOrchestrator 编排多智能体流程。
+- 输入消息经过安全过滤，防止不当内容进入后续 Agent 流程。
+
+主要接口：
+- POST /api/sessions/：创建新会话。
+- GET /api/sessions/：列出当前登录用户的会话。
+- GET /api/sessions/{session_id}：获取会话详情。
+- GET /api/sessions/{session_id}/profile：获取会话画像。
+- GET /api/sessions/{session_id}/stats：获取会话学习统计。
+- GET /api/sessions/{session_id}/events：获取学习事件列表。
+- POST /api/sessions/{session_id}/events：记录学习事件。
+- POST /api/sessions/{session_id}/chat：同步聊天。
+- GET /api/sessions/{session_id}/chat-stream：SSE 流式聊天。
+- POST /api/sessions/{session_id}/evaluate：基于学习事件评估学生。
+
+主要函数：
+- get_default_profile：返回默认学生画像。
+- get_sessions_db / _load_session / _save_session：内存缓存与 SQLite 读写工具。
+
 TODO:
 - [已完成] 使用 SQLite 持久化会话与画像
 - [已完成] 接入 JWT 认证（会话创建与列表已支持可选登录）
 - [已完成] chat 接口支持 SSE 流式输出
 - [已完成] 记录学习行为日志到数据库
 - [已完成] 增加输入安全过滤与敏感词检测
+- [待完成] 完全迁移到数据库后，可移除内存缓存
+- [待完成] 评估接口的画像更新规则可进一步科学化
 """
 import json
 import uuid
@@ -41,6 +65,7 @@ router = APIRouter()
 
 
 def get_default_profile() -> StudentProfile:
+    """默认学生画像：初学者、视觉型、依赖型、应用导向"""
     return StudentProfile(
         knowledge_level=1.0,
         cognitive_field="dependent",
@@ -65,9 +90,11 @@ def get_sessions_db(app) -> Dict[str, dict]:
 def _load_session(app, session_id: str) -> dict | None:
     """从内存缓存或 SQLite 加载会话"""
     sessions_db = get_sessions_db(app)
+    # 优先命中内存缓存
     if session_id in sessions_db:
         return sessions_db[session_id]
 
+    # 未命中则从 SQLite 加载并回填缓存
     row = get_session(session_id)
     if row:
         sessions_db[session_id] = row
@@ -114,9 +141,10 @@ async def create_session_endpoint(
         target_concept=payload.target_concept,
     )
 
-    # 同时放入内存缓存
+    # 同时放入内存缓存，加速后续访问
     get_sessions_db(request.app)[session_id] = session
 
+    # 如果创建时指定了目标知识点，返回推荐学习路径
     suggested_path = []
     if payload.target_concept:
         graph = get_graph_store()
@@ -142,6 +170,7 @@ async def list_sessions(
     if not current_user:
         return {"sessions": [], "total": 0}
 
+    # 从 SQLite 查询当前用户的会话列表
     db = get_db()
     try:
         rows = list(db["sessions"].rows_where("user_id = ?", [current_user]))
@@ -220,7 +249,7 @@ async def log_session_event(
 
     log_event(session_id, payload.event_type, payload.payload)
 
-    # 如果是练习提交或代码运行，实时更新画像中的掌握知识点
+    # 如果是练习提交或代码运行且结果正确，实时更新画像中的掌握知识点
     profile = session.get("profile", get_default_profile().model_dump())
     mastered = set(profile.get("mastered_concepts", []))
     if payload.event_type == "exercise_submitted" and payload.payload.get("is_correct"):
@@ -248,7 +277,7 @@ async def chat(session_id: str, payload: ChatRequest, request: Request):
             content={"message": "会话不存在，请先创建会话"},
         )
 
-    # 输入安全过滤
+    # 输入安全过滤：拦截敏感/不当内容
     safety = get_safety_filter()
     is_unsafe, keywords = safety.check(payload.message)
     if is_unsafe:
@@ -265,24 +294,24 @@ async def chat(session_id: str, payload: ChatRequest, request: Request):
             },
         )
 
-    # 记录用户消息
+    # 记录用户消息到对话历史
     session["dialogue_history"].append({
         "role": "user",
         "content": payload.message,
         "type": payload.message_type,
     })
 
-    # 调用 Agent 编排器
+    # 调用 Agent 编排器处理学生消息
     orchestrator = AgentOrchestrator()
     response = orchestrator.handle_chat(session, payload.message, payload.message_type)
 
-    # 记录助手消息
+    # 记录助手消息到对话历史
     session["dialogue_history"].append({
         "role": "assistant",
         "content": response.content.get("message", ""),
     })
 
-    # 持久化 + 日志
+    # 持久化会话并记录聊天日志
     _save_session(request.app, session)
     log_event(session_id, "chat", {
         "message": payload.message,
@@ -353,13 +382,13 @@ async def chat_stream(
                 session, message, message_type
             )
 
-            # 记录助手消息
+            # 记录助手消息到对话历史
             session["dialogue_history"].append({
                 "role": "assistant",
                 "content": response.content.get("message", ""),
             })
 
-            # 持久化 + 日志
+            # 持久化会话并记录聊天日志
             _save_session(request.app, session)
             log_event(session_id, "chat", {
                 "message": message,
@@ -388,7 +417,7 @@ async def evaluate_session(session_id: str, request: Request):
     events = get_session_events(session_id)
     reviewer = ReviewerAgent()
 
-    # 从事件中汇总练习与代码运行结果
+    # 从学习事件中汇总练习、代码运行和聊天轮次
     exercise_results = []
     code_runs = []
     chat_turns = 0
@@ -411,6 +440,7 @@ async def evaluate_session(session_id: str, request: Request):
             chat_turns += 1
 
     profile = session.get("profile", get_default_profile().model_dump())
+    # 选择评估目标知识点：优先最近练习/代码运行的知识点，否则取最近掌握知识点
     concept = "当前知识点"
     if exercise_results:
         concept = exercise_results[-1].get("concept", concept)
@@ -438,13 +468,14 @@ async def evaluate_session(session_id: str, request: Request):
     eval_result = reviewer.evaluate(eval_msg)
     evaluation = eval_result.payload
 
-    # 根据评估结果自动调整画像
+    # 根据评估结果自动调整画像：知识水平与掌握知识点
     mastery_delta = evaluation.get("mastery_delta", {})
     deltas = [v for v in mastery_delta.values() if isinstance(v, (int, float))]
     if deltas:
         avg_delta = sum(deltas) / len(deltas)
         profile["knowledge_level"] = min(5.0, profile.get("knowledge_level", 1.0) + avg_delta)
 
+    # 如果该知识点练习正确率达标或掌握度增量足够，则加入已掌握列表
     mastered = set(profile.get("mastered_concepts", []))
     if deltas and concept not in mastered:
         accuracy = 0.0

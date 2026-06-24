@@ -1,12 +1,26 @@
 """FastAPI 应用入口
 
+对应需求：
+- 初始化智学蜂巢后端应用，注册路由、中间件、CORS 与生命周期管理。
+- 在启动时完成图存储、内存缓存与数据库的初始化。
+
+主要类/函数/接口：
+- lifespan：应用生命周期上下文管理器。
+  - 启动：初始化图存储（单例）、内存会话缓存、触发 SQLite 建表。
+  - 关闭：释放图存储连接。
+- app：FastAPI 实例，配置标题/描述/版本/lifespan。
+- 路由注册：/api/auth、/api/sessions、/api/resources、/api/graph、/api/code。
+- health_check / health_detail：健康检查端点（基础与详细统计）。
+
 TODO:
-- [已完成] 接入真实 LLM API（当前默认 DeepSeek，保留讯飞 Spark 作为备选）
-- [已完成] 使用 SQLite 持久化会话与画像
-- [待完成] 启动 Neo4j Docker 后切换 GRAPH_BACKEND=neo4j
-- [待完成] 添加请求日志、错误监控、Agent 超时熔断
-- [待完成] 接入 Redis 缓存会话与资源生成结果
-- [待完成] 补充 OpenAPI 文档说明与接口测试
+- [已完成] 接入真实 LLM API（当前默认 DeepSeek，保留讯飞 Spark 作为备选）。
+- [已完成] 使用 SQLite 持久化会话与画像。
+- [已完成] 注册请求日志中间件与 CORS。
+- [已完成] 基础 /health 与 /health/detail 端点。
+- [待完成] 启动 Neo4j Docker 后切换 GRAPH_BACKEND=neo4j。
+- [待完成] 添加请求日志、错误监控、Agent 超时熔断（部分日志已完成，监控/熔断待补齐）。
+- [待完成] 接入 Redis 缓存会话与资源生成结果。
+- [待完成] 补充 OpenAPI 文档说明与接口测试。
 """
 from contextlib import asynccontextmanager
 
@@ -31,7 +45,7 @@ async def lifespan(app: FastAPI):
     # 初始化内存会话缓存
     app.state.sessions_db = {}
 
-    # 初始化 SQLite 数据库（懒加载，这里触发创建）
+    # 初始化 SQLite 数据库（懒加载，这里触发建表）
     _ = get_db()
 
     yield

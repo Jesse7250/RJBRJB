@@ -1,13 +1,20 @@
-"""认证与授权服务
+"""认证与授权服务（AuthN / AuthZ）
 
-提供：
-- 密码哈希与校验（bcrypt）
-- JWT token 生成与解析
-- 可选的 FastAPI 依赖 `get_current_user`
+对应需求：
+- 为智学蜂巢提供用户登录鉴权能力，包括密码安全校验与会话 token 管理。
+- 为 FastAPI 路由提供可复用的可选/强制登录依赖。
+
+主要类/函数/接口：
+- verify_password / get_password_hash：基于 bcrypt 的密码校验与哈希生成。
+- create_access_token / decode_access_token：JWT 的生成与解析（HS256）。
+- get_current_user：可选登录依赖，返回当前 username，未登录返回 None。
+- require_user：强制登录依赖，token 缺失/过期/无效时抛出 401。
 
 TODO:
-- [待完成] 接入 refresh token 机制
-- [待完成] 增加 token 黑名单/登出
+- [已完成] 密码哈希与校验（bcrypt）。
+- [已完成] JWT 生成、解析与 FastAPI 依赖注入（python-jose）。
+- [待完成] 接入 refresh token 机制，降低长期 access token 泄露风险。
+- [待完成] 增加 token 黑名单/登出功能，支持服务端失效会话。
 """
 from datetime import datetime, timedelta, timezone
 from typing import Optional

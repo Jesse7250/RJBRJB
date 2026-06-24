@@ -1,3 +1,20 @@
+/**
+ * 需求：智学蜂巢 EduHive 主应用外壳。
+ * 功能：
+ *   - 初始化学习会话并轮询学习统计；
+ *   - 提供桌面端/移动端导航，切换「AI 学习对话」「知识图谱」「代码沙箱」三大模块；
+ *   - 渲染学习画像、迷你统计、资源入口等全局视图。
+ * 主要 hooks/函数：
+ *   - loadStats：拉取当前会话统计；
+ *   - renderMainPanel：根据 activeTab 懒加载对应主面板；
+ *   - NavItem/MiniStat/ProfileCard/ResourceCard/PanelSkeleton：布局原子组件。
+ * TODO:
+ *  - [已完成] 会话创建与统计轮询
+ *  - [已完成] 三栏主布局与响应式导航
+ *  - [已完成] 主面板懒加载（KnowledgeGraph / PyodideSandbox）
+ *  - [待完成] 学习画像持久化与历史会话切换
+ *  - [待完成] 错误边界与全局加载状态
+ */
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import {
@@ -51,6 +68,7 @@ function App() {
   const [activeTab, setActiveTab] = useState<TabKey>('chat')
   const [stats, setStats] = useState<SessionStats | null>(null)
 
+  // 拉取并保存当前会话的学习统计数据
   const loadStats = async (sessionId: string) => {
     try {
       const res = await sessionApi.getStats(sessionId)
@@ -60,6 +78,7 @@ function App() {
     }
   }
 
+  // 初始化会话：创建后立即拉取一次统计
   useEffect(() => {
     sessionApi.create().then((res) => {
       setSession(res.data)
@@ -67,12 +86,14 @@ function App() {
     })
   }, [])
 
+  // 监听全局事件，支持从 ChatPanel / ResourceViewer 一键跳转到代码沙箱
   useEffect(() => {
     const handler = () => setActiveTab('sandbox')
     window.addEventListener('eduhive:open-sandbox', handler)
     return () => window.removeEventListener('eduhive:open-sandbox', handler)
   }, [])
 
+  // 每 5 秒轮询会话统计，实时更新顶部 MiniStat 与学习画像
   useEffect(() => {
     if (!session) return
     const interval = setInterval(() => loadStats(session.session_id), 5000)
@@ -90,6 +111,7 @@ function App() {
     }
   }, [activeTab])
 
+  // 根据当前标签懒加载主面板，降低首屏资源体积
   const renderMainPanel = () => {
     if (activeTab === 'chat') {
       return session ? <ChatPanel session={session} /> : <PanelSkeleton />
@@ -351,6 +373,7 @@ function ProfileCard({
             </div>
 
             <div className="space-y-3">
+              {/* 将后端认知风格枚举转换为中文展示 */}
               <ProfileRow
                 label="认知风格"
                 value={`${session.profile.cognitive_field === 'dependent' ? '场依存' : '场独立'} · ${
@@ -365,6 +388,7 @@ function ProfileCard({
               <ProfileRow label="目标导向" value={session.profile.goal_orientation} />
             </div>
 
+            {/* 汇总对话、资源、练习、正确率等核心统计 */}
             {stats && (
               <>
                 <div className="h-px bg-slate-100" />

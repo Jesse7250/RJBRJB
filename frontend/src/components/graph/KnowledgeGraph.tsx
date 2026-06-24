@@ -1,3 +1,19 @@
+/**
+ * 需求：Python 知识图谱可视化。
+ * 功能：
+ *   - 从后端获取知识节点与边数据；
+ *   - 使用 ECharts 力导向图展示模块、难度、依赖关系；
+ *   - 支持缩放、拖拽、悬停提示。
+ * 主要 hooks/函数：
+ *   - 数据转换：将 GraphData 映射为 ECharts 节点/分类/连线；
+ *   - useEffect：初始化/销毁图表并监听窗口尺寸变化。
+ * TODO:
+ *  - [已完成] 力导向图渲染
+ *  - [已完成] 按模块着色与悬停提示
+ *  - [待完成] 与当前学习路径高亮联动
+ *  - [待完成] 节点点击跳转资源/练习
+ *  - [待完成] 图谱缩放、搜索与筛选
+ */
 import { useEffect, useRef, useState } from 'react'
 import * as echarts from 'echarts'
 import { Share2 } from 'lucide-react'
@@ -7,6 +23,7 @@ import { IconBox } from '@/components/ui/icon-box'
 import { Skeleton } from '@/components/ui/skeleton'
 import { graphApi, type GraphData } from '@/services/api'
 
+// 按模块预定义节点配色，未命中的模块使用 FALLBACK_PALETTE
 const MODULE_COLORS: Record<string, string> = {
   基础语法: '#6366f1',
   数据类型: '#10b981',
@@ -24,6 +41,7 @@ export function KnowledgeGraph() {
   const chartRef = useRef<HTMLDivElement>(null)
   const chartInstanceRef = useRef<echarts.ECharts | null>(null)
 
+  // 首次加载时获取图谱数据
   useEffect(() => {
     graphApi.getGraph().then((res) => {
       setGraphData(res.data)
@@ -31,9 +49,11 @@ export function KnowledgeGraph() {
     })
   }, [])
 
+  // 将后端图谱数据转换为 ECharts 力导向图所需的分类、节点与连线
   useEffect(() => {
     if (!graphData || !chartRef.current) return
 
+    // 提取所有模块作为图例分类
     const modules = Array.from(new Set(graphData.nodes.map((n) => n.module)))
     const categories = modules.map((name, index) => ({
       name,
@@ -44,6 +64,7 @@ export function KnowledgeGraph() {
 
     const categoryIndex = (module: string) => modules.indexOf(module)
 
+    // 节点大小随难度递增，颜色与所属模块一致
     const nodes = graphData.nodes.map((n) => ({
       id: n.id,
       name: n.name,
@@ -60,6 +81,7 @@ export function KnowledgeGraph() {
       },
     }))
 
+    // 连线宽度随依赖强度递增
     const links = graphData.edges.map((e) => ({
       source: e.source,
       target: e.target,
@@ -67,6 +89,7 @@ export function KnowledgeGraph() {
       lineStyle: { width: 1 + e.strength * 2, opacity: 0.5 },
     }))
 
+    // 初始化力导向图并绑定数据
     const chart = echarts.init(chartRef.current, undefined, { renderer: 'canvas' })
     chartInstanceRef.current = chart
 
@@ -127,6 +150,7 @@ export function KnowledgeGraph() {
       ],
     })
 
+    // 窗口变化时自适应，组件卸载时释放图表实例
     const handleResize = () => chart.resize()
     window.addEventListener('resize', handleResize)
 

@@ -1,8 +1,24 @@
 """用户认证 API
 
-提供：
-- POST /api/auth/register  用户注册
-- POST /api/auth/login     用户登录（OAuth2 Password Bearer）
+对应需求/功能：
+- 提供智学蜂巢用户注册与登录接口，采用 JWT Token（OAuth2 Password Bearer）机制。
+- 注册成功后自动返回 access_token，登录成功后校验密码并签发 token。
+
+主要接口：
+- POST /api/auth/register：用户注册，校验用户名密码后创建用户并返回 Token。
+- POST /api/auth/login：用户登录，使用 OAuth2PasswordRequestForm 接收表单数据。
+
+主要类：
+- RegisterRequest：注册请求体。
+- TokenResponse：Token 响应体。
+
+TODO:
+- [已完成] 用户注册与密码哈希存储已实现
+- [已完成] 用户登录与 JWT Token 签发已实现
+- [已完成] 基本参数校验已实现
+- [待完成] 增加邮箱/手机验证与验证码机制
+- [待完成] 增加密码强度策略与登录失败锁定
+- [待完成] 支持 token 刷新与登出黑名单
 """
 from datetime import timedelta
 from typing import Optional
@@ -31,6 +47,7 @@ class TokenResponse(BaseModel):
 @router.post("/register", response_model=TokenResponse)
 async def register(payload: RegisterRequest):
     """用户注册"""
+    # 基础参数校验
     if not payload.username or not payload.password:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -42,6 +59,7 @@ async def register(payload: RegisterRequest):
             detail="密码长度至少 6 位",
         )
 
+    # 检查用户名是否已存在
     existing = get_user(payload.username)
     if existing:
         raise HTTPException(
@@ -49,6 +67,7 @@ async def register(payload: RegisterRequest):
             detail="用户名已存在",
         )
 
+    # 密码哈希后写入数据库，并签发 24 小时有效期的 JWT
     hashed = get_password_hash(payload.password)
     create_user(payload.username, hashed)
 
@@ -67,6 +86,7 @@ async def register(payload: RegisterRequest):
 async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     """用户登录"""
     user = get_user(form_data.username)
+    # 校验用户存在且密码正确
     if not user or not verify_password(form_data.password, user["hashed_password"]):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

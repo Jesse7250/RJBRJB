@@ -1,11 +1,22 @@
 """知识图谱存储工厂
 
-根据配置或环境自动选择 Neo4j 或内存图存储。
+对应需求：
+- 根据运行环境（开发/测试/生产）自动选择合适的知识图谱后端。
+- 统一提供 GraphStore 单例，供业务模块无感知切换 Neo4j 或内存实现。
+
+主要类/函数/接口：
+- GRAPH_STORE_INSTANCE：全局单例缓存。
+- get_graph_store：工厂函数，按 GRAPH_BACKEND 环境变量选择后端。
+  - neo4j：直接实例化 Neo4jClient。
+  - memory：直接实例化 MemoryGraph。
+  - auto：先尝试连接 Neo4j，失败后回退到内存图，便于本地开发。
 
 TODO:
-- [待完成] 生产环境默认使用 Neo4j，确保 Docker Compose 中 Neo4j 服务正常启动
-- [待完成] 增加图存储健康检查与自动重连
-- [待完成] 支持同时写 Neo4j 和内存图（用于测试对比）
+- [已完成] 基于环境变量自动选择 Neo4j / 内存图后端。
+- [已完成] auto 模式下的 Neo4j 探测与内存图回退。
+- [待完成] 生产环境默认使用 Neo4j，确保 Docker Compose 中 Neo4j 服务正常启动。
+- [待完成] 增加图存储健康检查与自动重连。
+- [待完成] 支持同时写 Neo4j 和内存图（用于测试对比与数据校验）。
 """
 import os
 from typing import Optional
@@ -39,13 +50,13 @@ def get_graph_store() -> GraphStore:
         GRAPH_STORE_INSTANCE = MemoryGraph()
         return GRAPH_STORE_INSTANCE
 
-    # auto 模式：先尝试 Neo4j，失败则回退到内存图
+    # auto 模式：先尝试 Neo4j，失败则回退到内存图，保证本地无 Docker 也能启动
     if backend == "auto":
         try:
             from app.services.neo4j_client import Neo4jClient
 
             client = Neo4jClient()
-            # 验证连接
+            # 通过简单查询验证连接可用，避免拿到不可用的驱动
             with client.driver.session() as session:
                 session.run("RETURN 1")
             GRAPH_STORE_INSTANCE = client

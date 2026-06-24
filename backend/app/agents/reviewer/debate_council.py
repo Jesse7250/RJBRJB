@@ -1,12 +1,28 @@
 """Debate Council：Reviewer 内部的 4 视角审核模块
 
-这不是对外暴露的 Agent，而是 ReviewerAgent 内部调用的 4 个审核 Prompt：
-- ExpertReviewer：技术准确性
-- TeacherReviewer：教学方法论
-- StudentReviewer：可理解性
-- GuardianReviewer：内容安全与幻觉
+对应需求/功能：
+- 作为 ReviewerAgent 的内部模块，对 Generator 生成的教学资源进行多视角审核。
+- 4 个审核 Prompt：
+  - ExpertReviewer：技术准确性（语法、API、可运行性）。
+  - TeacherReviewer：教学方法论（认知规律、难度梯度、支架支持）。
+  - StudentReviewer：可理解性（初学者视角）。
+  - GuardianReviewer：内容安全与幻觉（一票否决权）。
+- 通过内部模块化，降低外部 Orchestrator 的复杂度。
 
-通过内部模块化，降低外部 Orchestrator 的复杂度。
+主要类/函数：
+- ExpertReviewer / TeacherReviewer / StudentReviewer / GuardianReviewer：
+  4 个审核 Agent，各自输出 PASS/WARN/REJECT/VETO。
+- _parse_review(raw)：将 Agent 文本回复解析为结构化 verdict/suggestion。
+- DebateCouncil：辩论议会，负责串行调用 4 个审核 Agent 并汇总投票。
+- DebateCouncil.debate(...)：完整 4-Agent 辩论。
+- DebateCouncil.fast_review(...)：仅 Guardian 快速审核。
+
+TODO:
+- [已完成] 4 视角审核 Agent 与 Prompt 已实现
+- [已完成] 审核回复解析与投票计分已实现
+- [已完成] fast/full 两种审核模式已实现
+- [待完成] 评分阈值与投票权重可配置化
+- [待完成] 支持多轮迭代辩论（当前仅单轮）
 """
 import re
 from typing import Any, Dict, List
@@ -115,11 +131,12 @@ PASS 或 VETO
 
 
 def _parse_review(raw: str) -> Dict[str, Any]:
-    """解析 Agent 审核回复"""
+    """解析 Agent 审核回复，提取 verdict 与具体意见"""
     raw = raw.strip()
     lines = raw.split("\n")
     first_line = lines[0].upper()
 
+    # 按优先级判定：PASS > REJECT/VETO > WARN，未识别则保守判为 WARN
     verdict = "WARN"
     if "PASS" in first_line:
         verdict = "PASS"
@@ -143,7 +160,7 @@ class DebateCouncil:
 
     def __init__(self, max_rounds: int = 6, pass_threshold: float = 2.5):
         self.max_rounds = max_rounds
-        # PASS=1, WARN=0.5, REJECT/VETO=0；4 个 Agent >= 2.5 视为通过
+        # 计分规则：PASS=1, WARN=0.5, REJECT/VETO=0；4 个 Agent 总分 >= 2.5 视为通过
         self.pass_threshold = pass_threshold
         self.expert = ExpertReviewer()
         self.teacher = TeacherReviewer()
@@ -164,6 +181,7 @@ class DebateCouncil:
         ]
 
         for i, (name, reviewer) in enumerate(reviewers, start=1):
+            # Guardian 需要额外传入 forbidden_concepts 以做超纲判断
             if name == "Guardian":
                 result = reviewer.review(package, concept_info, forbidden_concepts)
             else:
@@ -178,13 +196,14 @@ class DebateCouncil:
             ))
             final_votes[name] = result["verdict"]
 
+        # 按 PASS/WARN/REJECT 计分，并保证 Guardian 未否决
         score = sum(1 if v == "PASS" else 0.5 if v == "WARN" else 0 for v in final_votes.values())
         if score >= self.pass_threshold and final_votes.get("Guardian") != "REJECT":
             status = "PASSED"
         else:
             status = "REJECTED"
 
-        # 如果有 WARN 但没有 REJECT，视为 MODIFIED
+        # 通过但存在 WARN 意见，说明需要小修，标记为 MODIFIED
         if status == "PASSED" and any(v == "WARN" for v in final_votes.values()):
             status = "MODIFIED"
 

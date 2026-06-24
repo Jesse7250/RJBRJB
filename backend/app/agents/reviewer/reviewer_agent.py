@@ -1,11 +1,29 @@
 """ReviewerAgent：审核 + 辅导 + 评估三位一体
 
-对外是单一 Agent，内部包含：
-- DebateCouncil：4 视角资源审核
-- SocratesTutor：苏格拉底式辅导
-- LearningEvaluator：学习效果评估
+对应需求/功能：
+- 对外呈现为单一 Agent，内部聚合三种能力：
+  1. 资源审核：通过 DebateCouncil 执行 4 视角辩论或 Guardian 快速审核。
+  2. 苏格拉底辅导：通过 SocratesTutor 对代码错误进行引导式提问。
+  3. 学习评估：通过 LearningEvaluator 基于练习/代码运行数据生成学习报告。
+- 同时负责辩论缓存（SQLite）与审核降级策略，避免重复调用 LLM。
 
-同时负责辩论缓存与降级策略。
+主要类/函数：
+- ReviewerAgent.run(message)：统一入口，按 stage/action 分发到 review / tutor / evaluate。
+- ReviewerAgent.review(message, mode)：资源审核，支持 fast/full 模式，含缓存与修订。
+- ReviewerAgent.tutor(message)：苏格拉底辅导入口。
+- ReviewerAgent.evaluate(message)：学习评估入口。
+- _select_review_mode：根据代码案例数量与超纲/AST 问题选择审核模式。
+- _revise_and_re_debate：辩论被拒绝时，调用 Generator 修订后重新审核。
+- _ensure_cache_table / _make_debate_cache_key / _get_cached_debate / _set_cached_debate：
+  辩论结果缓存管理。
+
+TODO:
+- [已完成] 4 视角辩论审核与快速审核已实现
+- [已完成] 神经符号校验（前置依赖、AST）前置过滤已实现
+- [已完成] 辩论结果 SQLite 缓存与过期清理已实现
+- [已完成] 审核拒绝后自动修订并重新辩论已实现
+- [待完成] 缓存键未包含完整 profile，可能导致相似画像命中偏差
+- [待完成] 超时熔断与重试机制待补充
 """
 import hashlib
 import json
@@ -31,6 +49,7 @@ class ReviewerAgent(BaseAgent):
         self.debate_council = DebateCouncil()
         self.socrates = SocratesTutor()
         self.evaluator = LearningEvaluator()
+        # 初始化时确保缓存表存在
         self._ensure_cache_table()
 
     # ------------------------------------------------------------------
@@ -45,7 +64,7 @@ class ReviewerAgent(BaseAgent):
             return self.tutor(message)
         if stage == "evaluator":
             return self.evaluate(message)
-        # 默认按 payload 中的 action 分发
+        # 若 stage 未命中，则按 payload 中的 action 字段兜底分发
         action = message.payload.get("action", "review")
         if action == "review":
             return self.review(message)
@@ -73,7 +92,7 @@ class ReviewerAgent(BaseAgent):
         concept = package.concept
         profile = message.context.get("profile", {})
 
-        # 1. 检查缓存
+        # 1. 检查缓存：相同知识点+相似画像的审核结果可直接复用
         cached = self._get_cached_debate(concept, profile)
         if cached:
             return message.reply(
@@ -82,7 +101,7 @@ class ReviewerAgent(BaseAgent):
                 from_agent=self.name,
             )
 
-        # 2. 神经符号校验（前置依赖、AST）
+        # 2. 神经符号校验：检测超纲概念与代码块 AST 问题
         from app.services.graph_factory import get_graph_store
         from app.services.neuro_symbolic import NeuroSymbolicValidator
 
@@ -92,7 +111,7 @@ class ReviewerAgent(BaseAgent):
         ast_violations = NeuroSymbolicValidator().validate_code_blocks(package.document, concept)
         all_forbidden = list(set(forbidden + ast_violations))
 
-        # 3. 选择审核模式
+        # 3. 根据风险选择审核模式：高风险/含代码走 full，否则走 fast
         if mode is None:
             mode = self._select_review_mode(package, concept, all_forbidden)
 
@@ -100,11 +119,11 @@ class ReviewerAgent(BaseAgent):
             report = self.debate_council.fast_review(package, concept_info, all_forbidden)
         else:
             report = self.debate_council.debate(package, concept_info, all_forbidden)
-            # 如果被拒绝，尝试修订一次
+            # 如果被拒绝，尝试调用 Generator 修订后重新审核一次
             if report.status == "REJECTED":
                 report = self._revise_and_re_debate(package, concept_info, all_forbidden, profile)
 
-        # 4. 缓存通过的审核结果
+        # 4. 缓存通过的审核结果，减少重复 LLM 调用
         if report.status in ("PASSED", "MODIFIED"):
             self._set_cached_debate(concept, profile, report)
 
@@ -124,20 +143,20 @@ class ReviewerAgent(BaseAgent):
     def _select_review_mode(self, package: ResourcePackage, concept: str,
                             forbidden_concepts: List[str]) -> str:
         """选择审核模式：代码题、新知识点、高风险 → full；普通讲解 → fast"""
-        # 代码案例多则走完整辩论
         code_case_count = len(package.code_cases or [])
-        # 有 AST 或超纲问题则走完整辩论
+        # 存在 AST 或超纲问题，或包含代码案例时，走完整 4-Agent 辩论
         if forbidden_concepts or code_case_count > 0:
             return "full"
-        # 默认快速审核
+        # 普通讲解走 Guardian 快速审核
         return "fast"
 
     def _revise_and_re_debate(self, package: ResourcePackage, concept_info: dict,
                               forbidden_concepts: List[str],
                               profile: Dict[str, Any]) -> DebateReport:
-        """辩论被拒绝后，根据建议修订并重新审核一次"""
+        """辩论被拒绝后，汇总各审核 Agent 的建议，调用 Generator 修订并重新审核一次"""
         from app.agents.generator import GeneratorAgent
 
+        # 收集所有 WARN/REJECT/VETO 意见作为修订反馈
         feedback_lines = []
         for r in self.debate_council.debate(package, concept_info, forbidden_concepts).rounds:
             if r.verdict in ("WARN", "REJECT", "VETO") and r.suggestion:

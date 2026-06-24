@@ -1,3 +1,19 @@
+/**
+ * 需求：浏览器端 Python 代码沙箱。
+ * 功能：
+ *   - 基于 Pyodide 在浏览器中加载 Python 解释器；
+ *   - 提供 Monaco 编辑器编辑、运行、重置代码；
+ *   - 捕获 stdout/stderr 并在终端输出区展示。
+ * 主要 hooks/函数：
+ *   - runCode：配置标准输出并异步执行 Python 代码；
+ *   - reset：恢复默认示例代码。
+ * TODO:
+ *  - [已完成] Pyodide 动态加载与运行
+ *  - [已完成] Monaco 编辑器集成
+ *  - [待完成] 多文件/模块支持与包管理（micropip）
+ *  - [待完成] 运行超时与资源限制
+ *  - [待完成] 代码执行历史与 Diff 对比
+ */
 import { useEffect, useState } from 'react'
 import Editor from '@monaco-editor/react'
 import { Play, RotateCcw, Terminal, Loader2 } from 'lucide-react'
@@ -9,6 +25,7 @@ import { Badge } from '@/components/ui/badge'
 import { useSandboxStore } from '@/stores/sandboxStore'
 import { cn } from '@/lib/utils'
 
+// Pyodide 单例，避免重复下载和初始化
 let pyodideInstance: any = null
 
 const DEFAULT_CODE = '# 在这里输入 Python 代码\nprint("Hello, Python!")'
@@ -21,10 +38,12 @@ export function PyodideSandbox() {
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState(false)
 
+  // 当 ChatPanel / ResourceViewer 写入代码时同步到编辑器
   useEffect(() => {
     setCode(storeCode || DEFAULT_CODE)
   }, [storeCode])
 
+  // 动态加载 Pyodide 运行时（首次访问沙箱时触发）
   useEffect(() => {
     const load = async () => {
       if (!pyodideInstance) {
@@ -38,6 +57,7 @@ export function PyodideSandbox() {
     load()
   }, [])
 
+  // 配置 stdout/stderr 捕获，异步执行 Python 代码
   const runCode = async () => {
     if (!pyodideInstance) return
     setRunning(true)
@@ -61,6 +81,7 @@ export function PyodideSandbox() {
     }
   }
 
+  // 恢复默认示例代码
   const reset = () => setCode(DEFAULT_CODE)
 
   return (
