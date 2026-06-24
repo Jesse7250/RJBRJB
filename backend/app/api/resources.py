@@ -42,6 +42,7 @@ from app.services.database import (
     create_generation_task,
     create_resource,
     create_session,
+    get_resource_versions,
     get_session,
     log_event,
     update_generation_task,
@@ -325,3 +326,10 @@ async def stream_generate_resource(session_id: str, concept: str, request: Reque
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.get("/versions")
+async def get_resource_version_history(concept: str):
+    """获取某知识点的资源版本演进历史（知识熔炉展示用）"""
+    versions = get_resource_versions(concept)
+    return {"concept": concept, "versions": versions}

@@ -18,6 +18,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import {
+  Activity,
   BookOpen,
   Brain,
   CheckCircle2,
@@ -34,6 +35,7 @@ import { GradientText } from '@/components/ui/gradient-text'
 import { IconBox } from '@/components/ui/icon-box'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ChatPanel } from '@/components/chat/ChatPanel'
+import { MasteryHeatmap } from '@/components/evaluation/MasteryHeatmap'
 import { ResourceViewer } from '@/components/resources/ResourceViewer'
 import { sessionApi, type SessionResponse } from '@/services/api'
 import { cn } from '@/lib/utils'
@@ -55,12 +57,13 @@ interface SessionStats {
   exercise_failed_count: number
 }
 
-type TabKey = 'chat' | 'graph' | 'sandbox'
+type TabKey = 'chat' | 'graph' | 'sandbox' | 'progress'
 
 const NAV_ITEMS: { key: TabKey; label: string; icon: React.ElementType }[] = [
   { key: 'chat', label: '学习对话', icon: MessageCircle },
   { key: 'graph', label: '知识图谱', icon: Network },
   { key: 'sandbox', label: '代码沙箱', icon: Code2 },
+  { key: 'progress', label: '掌握进度', icon: Activity },
 ]
 
 function App() {
@@ -106,6 +109,8 @@ function App() {
         return '知识图谱'
       case 'sandbox':
         return '代码沙箱'
+      case 'progress':
+        return '掌握进度'
       default:
         return 'AI 学习对话'
     }
@@ -122,6 +127,9 @@ function App() {
         {activeTab === 'sandbox' && <PyodideSandbox />}
       </Suspense>
     )
+    if (activeTab === 'progress') {
+      return <MasteryHeatmap sessionId={session?.session_id} />
+    }
   }
 
   return (

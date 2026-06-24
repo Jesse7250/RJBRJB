@@ -93,13 +93,49 @@ export const graphApi = {
   getConcept: (name: string) => api.get(`/graph/concept/${name}`),
 }
 
-// 学习资源相关接口：同步生成、流式生成
+export interface JudgeRequest {
+  code: string
+  expected_output: string
+  session_id?: string
+  concept?: string
+}
+
+// 学习资源相关接口：同步生成、流式生成、版本演进
 export const resourceApi = {
   generate: (concept: string, profile?: any) =>
     api.post('/resources/generate', null, { params: { concept, profile } }),
 
   generateStream: (sessionId: string, concept: string) =>
     fetch(`/api/resources/stream-generate?session_id=${sessionId}&concept=${encodeURIComponent(concept)}`),
+
+  getVersions: (concept: string) => api.get(`/resources/versions?concept=${encodeURIComponent(concept)}`),
+}
+
+// 代码判题相关接口
+export const codeApi = {
+  judge: (data: JudgeRequest) => api.post('/code/judge', data),
+  judgeExercise: (data: JudgeRequest) => api.post('/code/judge-exercise', data),
+}
+
+// 行为埋点接口
+export const behaviorApi = {
+  log: (sessionId: string, eventType: string, concept?: string, payload?: any) =>
+    api.post(`/sessions/${sessionId}/behavior`, {
+      event_type: eventType,
+      session_id: sessionId,
+      concept,
+      payload: payload || {},
+    }),
+}
+
+// 学习效果评估接口
+export const evaluationApi = {
+  getHeatmap: (sessionId: string) =>
+    api.get(`/evaluation/heatmap?session_id=${sessionId}`),
+  getBkt: (sessionId: string) =>
+    api.get(`/evaluation/bkt?session_id=${sessionId}`),
+  analyze: (sessionId: string) =>
+    api.post(`/evaluation/analyze?session_id=${sessionId}`),
 }
 
 export default api

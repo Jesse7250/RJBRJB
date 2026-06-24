@@ -16,7 +16,7 @@
  *  - [已完成] 流式资源生成与进度展示
  *  - [已完成] 文档/导图/练习/审核四标签页
  *  - [已完成] 练习自动判题与沙箱运行
- *  - [待完成] 认知风格（视觉/听觉/动觉）差异化渲染
+ *  - [已完成] 认知风格（视觉/听觉/动觉）差异化渲染
  *  - [待完成] 辩论报告可视化增强（投票分布/修改对比）
  *  - [待完成] 资源收藏、历史记录与分享
  */
@@ -49,7 +49,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Progress } from '@/components/ui/progress'
 import { Stepper } from '@/components/ui/stepper'
 import { EmptyState } from '@/components/ui/empty-state'
-import api, { resourceApi } from '@/services/api'
+import { CognitiveStylePanel, type CognitiveStyle } from '@/components/resources/CognitiveStyleRenderer'
+import api, { behaviorApi, codeApi, resourceApi } from '@/services/api'
 import { useSandboxStore } from '@/stores/sandboxStore'
 import { cn } from '@/lib/utils'
 
@@ -137,6 +138,7 @@ export function ResourceViewer({ sessionId }: Props) {
   const [progressMessage, setProgressMessage] = useState('')
   const [progressValue, setProgressValue] = useState(0)
   const [currentStage, setCurrentStage] = useState('builder')
+  const [cognitiveStyle, setCognitiveStyle] = useState<CognitiveStyle>('visual')
   const mindmapRef = useRef<HTMLDivElement>(null)
   const setSandboxCode = useSandboxStore((s) => s.setCode)
 
@@ -255,11 +257,17 @@ export function ResourceViewer({ sessionId }: Props) {
 
     setJudgeResults((prev) => ({ ...prev, [idx]: { loading: true } }))
     try {
-      const res = await api.post('/code/judge', {
+      const res = await codeApi.judge({
         code,
         expected_output: exercise.expected_output || '',
+        session_id: sessionId,
+        concept: resource?.concept,
       })
       setJudgeResults((prev) => ({ ...prev, [idx]: { loading: false, result: res.data } }))
+      if (res.data.knowledge_furnace_triggered) {
+        // 可在此弹出提示或刷新版本时间线
+        console.log('知识熔炉已触发资源重审')
+      }
     } catch (err: any) {
       setJudgeResults((prev) => ({
         ...prev,
@@ -348,18 +356,27 @@ export function ResourceViewer({ sessionId }: Props) {
 
           <TabsContent value="document" className="mt-3">
             <GlassCard hover={false} className="overflow-hidden">
-              <div className="border-b border-slate-100 bg-gradient-to-r from-indigo-50/30 to-violet-50/30 px-5 py-4">
+              <div className="flex items-center justify-between border-b border-slate-100 bg-gradient-to-r from-indigo-50/30 to-violet-50/30 px-5 py-4">
                 <h4 className="text-sm font-bold text-slate-800">
                   <FileText className="mr-1.5 inline h-4 w-4 text-indigo-500" />
                   {resource.concept} · 讲解文档
                 </h4>
               </div>
               <div className="p-5">
-                <article className="prose prose-sm max-w-none">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-                    {resource.package.document}
-                  </ReactMarkdown>
-                </article>
+                <CognitiveStylePanel
+                  currentStyle={cognitiveStyle}
+                  onStyleChange={(style) => {
+                    setCognitiveStyle(style)
+                    behaviorApi.log(sessionId || 'anonymous', 'resource_switched', resource.concept, { style })
+                  }}
+                  audioText={resource.package.audio_text}
+                >
+                  <article className="prose prose-sm max-w-none">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+                      {resource.package.document}
+                    </ReactMarkdown>
+                  </article>
+                </CognitiveStylePanel>
               </div>
             </GlassCard>
           </TabsContent>

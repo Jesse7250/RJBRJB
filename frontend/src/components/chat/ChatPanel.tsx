@@ -14,6 +14,7 @@
  *  - [已完成] 基础 SSE 流式聊天
  *  - [已完成] 路径规划/代码/评估卡片渲染
  *  - [已完成] 代码一键运行到沙箱
+ *  - [已完成] 路径解释弹窗（C7）与苏格拉底提问链 UI（C8）
  *  - [待完成] 流式输出 token 级打字效果
  *  - [待完成] 消息历史持久化与滚动定位优化
  *  - [待完成] 多轮对话上下文折叠与摘要
@@ -28,9 +29,6 @@ import {
   Bot,
   User,
   Sparkles,
-  MapPin,
-  Clock,
-  ArrowRight,
   Play,
   CheckCircle,
   Lightbulb,
@@ -40,6 +38,8 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { GlassCard } from '@/components/ui/glass-card'
 import { IconBox } from '@/components/ui/icon-box'
+import { PathExplanation } from '@/components/learning-path/PathExplanation'
+import { SocraticPanel } from '@/components/socratic/SocraticPanel'
 import { sessionApi, type AgentResponse, type SessionResponse } from '@/services/api'
 import { useSandboxStore } from '@/stores/sandboxStore'
 import { cn } from '@/lib/utils'
@@ -217,6 +217,11 @@ export function ChatPanel({ session }: Props) {
     window.dispatchEvent(new CustomEvent('eduhive:generate-resource', { detail: { concept } }))
   }
 
+  // 继续苏格拉底引导时发送下一条消息
+  const continueSocratic = () => {
+    sendMessage('请继续引导我')
+  }
+
   // 将代码写入沙箱 store 并切换至沙箱标签
   const openSandboxWithCode = (code: string) => {
     setSandboxCode(code)
@@ -261,6 +266,7 @@ export function ChatPanel({ session }: Props) {
                 index={idx}
                 onRunCode={openSandboxWithCode}
                 onGenerateResource={triggerGenerateResource}
+                onContinueSocratic={continueSocratic}
               />
             ))}
           </AnimatePresence>
@@ -325,11 +331,13 @@ function MessageBubble({
   index,
   onRunCode,
   onGenerateResource,
+  onContinueSocratic,
 }: {
   msg: Message
   index: number
   onRunCode: (code: string) => void
   onGenerateResource: (concept: string) => void
+  onContinueSocratic?: () => void
 }) {
   const isUser = msg.role === 'user'
   const isSystem = msg.role === 'system'
@@ -378,6 +386,7 @@ function MessageBubble({
           msg={msg}
           onRunCode={onRunCode}
           onGenerateResource={onGenerateResource}
+          onContinueSocratic={onContinueSocratic}
         />
       </div>
 
@@ -394,10 +403,12 @@ function MessageContent({
   msg,
   onRunCode,
   onGenerateResource,
+  onContinueSocratic,
 }: {
   msg: Message
   onRunCode: (code: string) => void
   onGenerateResource: (concept: string) => void
+  onContinueSocratic?: () => void
 }) {
   if (msg.isStreaming && !msg.content) {
     return (
@@ -414,15 +425,20 @@ function MessageContent({
   const responseType = data?.response_type
 
   // 路径规划：展示推荐路径、预计时长与资源生成入口
-  if (responseType === 'path_plan' && typeof data?.content === 'object') {
+  if (
+    (responseType === 'path_plan' || responseType === 'navigator') &&
+    typeof data?.content === 'object'
+  ) {
     const content = data.content as {
       message?: string
       target_concept?: string
       suggested_path?: string[]
+      path?: string[]
+      path_explanation?: string[]
       estimated_minutes?: number
       next_action?: string
     }
-    const path = content.suggested_path || []
+    const path = content.suggested_path || content.path || []
     return (
       <div className="space-y-3">
         <div className="prose prose-sm max-w-none text-slate-700">
@@ -431,31 +447,12 @@ function MessageContent({
           </ReactMarkdown>
         </div>
         {path.length > 0 && (
-          <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-3">
-            <div className="mb-2 flex items-center gap-2 text-xs font-bold text-indigo-700">
-              <MapPin className="h-3.5 w-3.5" />
-              推荐学习路径
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {path.map((step, i) => (
-                <span key={i} className="flex items-center gap-2">
-                  <Badge
-                    variant="secondary"
-                    className="border-0 bg-white text-xs font-semibold text-slate-700 shadow-sm"
-                  >
-                    {step}
-                  </Badge>
-                  {i < path.length - 1 && <ArrowRight className="h-3 w-3 text-indigo-400" />}
-                </span>
-              ))}
-            </div>
-            {content.estimated_minutes && (
-              <div className="mt-2 flex items-center gap-1.5 text-xs text-slate-500">
-                <Clock className="h-3 w-3" />
-                预计 {content.estimated_minutes} 分钟
-              </div>
-            )}
-          </div>
+          <PathExplanation
+            path={path}
+            explanations={content.path_explanation}
+            estimatedMinutes={content.estimated_minutes}
+            onGenerate={onGenerateResource}
+          />
         )}
         {content.target_concept && content.next_action === 'generate_resource' && (
           <Button
@@ -468,6 +465,67 @@ function MessageContent({
           </Button>
         )}
       </div>
+    )
+  }
+
+  // 学习资源最终响应（Reviewer 返回）：展示路径解释与资源生成入口
+  if (responseType === 'reviewer' && typeof data?.content === 'object') {
+    const content = data.content as {
+      message?: string
+      concept?: string
+      path?: string[]
+      path_explanation?: string[]
+      estimated_minutes?: number
+      package?: any
+    }
+    const path = content.path || []
+    return (
+      <div className="space-y-3">
+        <div className="prose prose-sm max-w-none text-slate-700">
+          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+            {content.message || msg.content}
+          </ReactMarkdown>
+        </div>
+        {path.length > 0 && (
+          <PathExplanation
+            path={path}
+            explanations={content.path_explanation}
+            estimatedMinutes={content.estimated_minutes}
+            onGenerate={onGenerateResource}
+          />
+        )}
+        {content.concept && (
+          <Button
+            size="sm"
+            className="gap-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 shadow-lg shadow-indigo-500/25 transition-transform hover:scale-[1.02] active:scale-95"
+            onClick={() => onGenerateResource(content.concept!)}
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            查看「{content.concept}」学习资源
+          </Button>
+        )}
+      </div>
+    )
+  }
+
+  // 苏格拉底辅导：展示引导问题、提示与答案
+  if (responseType === 'tutor' && typeof data?.content === 'object') {
+    const content = data.content as {
+      question?: string
+      hint?: string
+      answer?: string
+      can_provide_answer?: boolean
+      stage?: string
+    }
+    return (
+      <SocraticPanel
+        question={content.question || msg.content}
+        hint={content.hint}
+        answer={content.answer}
+        canProvideAnswer={content.can_provide_answer}
+        stage={content.stage}
+        onNext={onContinueSocratic}
+      />
     )
   }
 
