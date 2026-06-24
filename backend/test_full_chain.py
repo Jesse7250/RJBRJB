@@ -10,6 +10,8 @@ import os
 import sys
 import time
 
+import pytest
+
 # 使用内存图（无需 Docker Neo4j）
 os.environ["GRAPH_BACKEND"] = "memory"
 # 使用已接入的 DeepSeek
@@ -20,6 +22,14 @@ from fastapi.testclient import TestClient
 from app.main import app
 
 client = TestClient(app)
+
+
+@pytest.fixture
+def session_id():
+    r = client.post("/api/sessions/", json={"target_concept": "文件操作"})
+    data = r.json()
+    assert r.status_code == 200
+    return data["session_id"]
 
 
 def log_step(name: str):
@@ -52,10 +62,9 @@ def test_session():
     print(f"session_id: {data['session_id']}")
     print(f"target_concept: {data.get('target_concept')}")
     assert r.status_code == 200
-    return data["session_id"]
 
 
-def test_chat(session_id: str):
+def test_chat(session_id):
     log_step("对话：学生说'我想学习文件操作'")
     r = client.post(
         f"/api/sessions/{session_id}/chat",
@@ -70,7 +79,7 @@ def test_chat(session_id: str):
     assert r.status_code == 200
 
 
-def test_generate_resource(session_id: str):
+def test_generate_resource(session_id):
     log_step("资源生成：为'文件操作'生成个性化资源")
     start = time.time()
     r = client.post(f"/api/resources/generate-for-session/{session_id}?concept=文件操作")

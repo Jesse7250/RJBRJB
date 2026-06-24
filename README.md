@@ -17,8 +17,8 @@
 1. **神经符号认知架构（Neuro-Symbolic）**  
    Neo4j 知识图谱为生成提供硬约束：前置知识、难度等级、易错点、禁用知识点，生成后通过 AST 校验防止“超纲”与幻觉。
 
-2. **Society of Mind 辩论议会**  
-   Expert / Teacher / Student-Sim / Guardian 四个 Agent 多角度审核生成资源，投票通过后方可输出，并可视化审核过程。
+2. **5 角色分层 + Society of Mind 辩论议会**  
+   Orchestrator / Profiler / Navigator / Generator / Reviewer 五个执行角色通过统一消息总线协作；Reviewer 内部保留 Expert / Teacher / Student-Sim / Guardian 四个审核视角 Prompt 议会，投票通过后方可输出。
 
 3. **认知风格自适应渲染引擎**  
    同一资源根据学生的场依存/独立、视觉/听觉/动觉偏好，呈现不同 UI 形态。
@@ -32,6 +32,26 @@
 
 ---
 
+## Agent 架构（5 角色分层）
+
+```
+User ──► Orchestrator ──► Profiler ──► Navigator ──► Generator ──► Reviewer
+                              ▲                                    │
+                              └────────── 学习事件反馈 ──────────────┘
+```
+
+| 角色 | 职责 | 备注 |
+|------|------|------|
+| **Orchestrator** | 意图识别、会话状态维护、按 SOP 路由消息 | 对外保持 `handle_chat` / `generate_resource` 等接口稳定 |
+| **Profiler** | 解析学生输入，更新认知画像 | 输出视觉/听觉/动觉、场依存/独立等维度 |
+| **Navigator** | 基于知识图谱规划学习路径 | 推荐前置/当前/后续知识点 |
+| **Generator** | 生成个性化教学资源包 | 含讲义、示例、练习、代码题 |
+| **Reviewer** | 资源审核、苏格拉底辅导、学习评估 | 内部 4-Prompt 辩论议会 + BKT 评估 |
+
+所有 Agent 通过 `AgentMessage` 协议通信，便于后续迁移至 LangGraph / AutoGen 等框架。
+
+---
+
 ## 技术栈
 
 | 层级 | 技术 |
@@ -39,7 +59,7 @@
 | 前端 | React 18 + Vite + TypeScript + Tailwind CSS + shadcn/ui + Monaco Editor + Pyodide |
 | 后端 | FastAPI + Python 3.10+ |
 | 大模型 | DeepSeek-V2 / 讯飞星火 4.0 / Mock（可切换） |
-| 多智能体 | 自定义 Agent Orchestrator + Society of Mind 辩论议会 |
+| 多智能体 | 自定义 Agent Orchestrator（5 角色消息总线）+ Reviewer 内部 4-Prompt 辩论议会 |
 | 知识图谱 | Neo4j Community / 内存图（无 Docker 自动降级） |
 | 数据库 | SQLite（用户、会话、学习记录、资源缓存） |
 | 认证 | JWT + bcrypt |
@@ -139,6 +159,9 @@ RJB_Demo/
 ├── backend/                 # FastAPI 后端
 │   ├── app/
 │   │   ├── agents/          # 多智能体实现
+│   │   │   ├── generator.py       # GeneratorAgent（原 BuilderAgent）
+│   │   │   ├── reviewer/          # ReviewerAgent（含 debate / socrates / evaluator）
+│   │   │   └── orchestrator.py    # 5 角色消息路由编排
 │   │   ├── api/             # RESTful API
 │   │   ├── core/            # 配置、安全
 │   │   ├── middleware/      # 请求日志中间件

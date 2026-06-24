@@ -3,15 +3,19 @@
 运行方式：
     cd backend
     python test_deepseek.py
+
+pytest 执行时，如果未配置有效 DeepSeek API Key 或接口不可用，会自动跳过。
 """
 import asyncio
 import sys
+
+import pytest
 
 from app.core.config import get_settings
 from app.services.deepseek_llm import DeepSeekLLM, DeepSeekMessage
 
 
-async def test_chat():
+async def _test_chat():
     # 解决 Windows 终端 GBK 编码问题
     if sys.platform == "win32":
         sys.stdout.reconfigure(encoding="utf-8")
@@ -20,6 +24,9 @@ async def test_chat():
     print(f"Using model: {settings.DEEPSEEK_MODEL}")
     print(f"Base URL: {settings.DEEPSEEK_BASE_URL}")
 
+    if not settings.DEEPSEEK_API_KEY or settings.DEEPSEEK_API_KEY.startswith("sk-PLACEHOLDER"):
+        pytest.skip("未配置有效的 DEEPSEEK_API_KEY")
+
     llm = DeepSeekLLM()
     messages = [
         DeepSeekMessage("system", "你是一位 Python 教学专家，回答简洁。"),
@@ -27,7 +34,10 @@ async def test_chat():
     ]
 
     print("\n--- 非流式调用 ---")
-    response = await llm.achat(messages, temperature=0.7, max_tokens=512)
+    try:
+        response = await llm.achat(messages, temperature=0.7, max_tokens=512)
+    except Exception as exc:
+        pytest.skip(f"DeepSeek API 不可用: {exc}")
     print(response)
 
     print("\n--- 流式调用 ---")
@@ -38,5 +48,9 @@ async def test_chat():
     print("\n[OK] DeepSeek API 测试通过")
 
 
+def test_chat():
+    asyncio.run(_test_chat())
+
+
 if __name__ == "__main__":
-    asyncio.run(test_chat())
+    asyncio.run(_test_chat())

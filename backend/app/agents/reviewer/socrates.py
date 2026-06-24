@@ -1,19 +1,12 @@
-"""Socrates Agent：苏格拉底式辅导
-
-TODO:
-- [待完成] 根据学生错误类型选择提问策略
-- [待完成] 维护提问链状态，支持多轮追问
-- [待完成] 接入代码执行结果，生成更精准的引导
-- [待完成] 记录学生思考路径并可视化
-"""
+"""苏格拉底式辅导模块（Reviewer 内部子能力）"""
 import json
 import re
 from typing import Any, Dict, Optional
 
-from app.agents.base import BaseAgent
+from app.agents.base import AgentMessage, BaseAgent
 
 
-class SocratesAgent(BaseAgent):
+class SocratesTutor(BaseAgent):
     """引导学生自主发现答案"""
 
     name = "Socrates"
@@ -31,15 +24,20 @@ class SocratesAgent(BaseAgent):
 }
 只输出 JSON。"""
 
-    def run(
-        self,
-        error_message: str,
-        code: str,
-        concept: str,
-        profile: Dict[str, Any],
-        depth: int = 0,
-    ) -> Dict[str, Any]:
-        """生成苏格拉底式提问"""
+    def run(self, message: AgentMessage) -> AgentMessage:
+        """统一入口"""
+        payload = message.payload
+        concept = payload.get("concept") or message.context.get("target_concept", "当前知识点")
+        error_message = payload.get("error_message", "")
+        code = payload.get("code", "")
+        profile = message.context.get("profile", {})
+        depth = message.metadata.get("socratic_depth", 0)
+
+        result = self.generate_question(error_message, code, concept, profile, depth)
+        return message.reply(result, stage="tutor", from_agent=self.name)
+
+    def generate_question(self, error_message: str, code: str, concept: str,
+                          profile: Dict[str, Any], depth: int = 0) -> Dict[str, Any]:
         stages = [
             "clarification",
             "assumption_probe",
@@ -72,7 +70,6 @@ class SocratesAgent(BaseAgent):
         return result
 
     def _extract_json(self, text: str) -> Optional[Dict[str, Any]]:
-        """从文本中提取 JSON"""
         try:
             return json.loads(text)
         except json.JSONDecodeError:
@@ -92,10 +89,9 @@ class SocratesAgent(BaseAgent):
         return None
 
     def _fallback_question(self, stage: str, concept: str, error_message: str) -> Dict[str, Any]:
-        """兜底提问模板"""
         templates = {
             "clarification": {
-                "question": f"这个错误提示你注意到了什么关键信息？",
+                "question": "这个错误提示你注意到了什么关键信息？",
                 "hint": "仔细看报错中的类型和行号。",
             },
             "assumption_probe": {

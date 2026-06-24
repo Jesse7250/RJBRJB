@@ -14,7 +14,7 @@ from typing import Dict, Optional
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 
-from app.agents.evaluator import EvaluatorAgent
+from app.agents.reviewer import ReviewerAgent
 from app.agents.orchestrator import AgentOrchestrator
 from app.models.schemas import (
     AgentResponse,
@@ -386,7 +386,7 @@ async def evaluate_session(session_id: str, request: Request):
         return {"success": False, "error": "会话不存在"}
 
     events = get_session_events(session_id)
-    evaluator = EvaluatorAgent()
+    reviewer = ReviewerAgent()
 
     # 从事件中汇总练习与代码运行结果
     exercise_results = []
@@ -419,12 +419,24 @@ async def evaluate_session(session_id: str, request: Request):
     elif profile.get("mastered_concepts"):
         concept = profile["mastered_concepts"][-1]
 
-    evaluation = evaluator.run(
-        concept=concept,
-        exercise_results=exercise_results,
-        code_runs=code_runs,
-        profile=profile,
+    from app.agents.base import AgentMessage
+    eval_msg = AgentMessage(
+        intent="PROGRESS_CHECK",
+        stage="evaluator",
+        payload={
+            "concept": concept,
+            "exercise_results": exercise_results,
+            "code_runs": code_runs,
+        },
+        context={
+            "session_id": session_id,
+            "profile": profile,
+            "target_concept": concept,
+        },
+        from_agent="user",
     )
+    eval_result = reviewer.evaluate(eval_msg)
+    evaluation = eval_result.payload
 
     # 根据评估结果自动调整画像
     mastery_delta = evaluation.get("mastery_delta", {})

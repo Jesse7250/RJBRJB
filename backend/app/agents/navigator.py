@@ -9,7 +9,7 @@ TODO:
 import json
 from typing import Any, Dict, List, Optional
 
-from app.agents.base import BaseAgent
+from app.agents.base import AgentMessage, BaseAgent
 from app.services.graph_factory import get_graph_store
 
 
@@ -29,21 +29,18 @@ class NavigatorAgent(BaseAgent):
 }
 只输出 JSON。"""
 
-    def run(
-        self,
-        target_concept: str,
-        profile: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """规划学习路径
+    def run(self, message: AgentMessage) -> AgentMessage:
+        """统一入口：规划学习路径"""
+        target_concept = message.payload.get("concept") or message.context.get("target_concept")
+        profile = message.context.get("profile", {})
+        if not target_concept:
+            return message.reply({"error": "未指定目标知识点"}, stage="navigator", from_agent=self.name)
 
-        Returns:
-            {
-                "path": List[str],
-                "estimated_minutes": int,
-                "reason": str,
-                "focus_concept": str,
-            }
-        """
+        result = self._plan_path(target_concept, profile)
+        return message.reply(result, stage="navigator", from_agent=self.name)
+
+    def _plan_path(self, target_concept: str, profile: Dict[str, Any]) -> Dict[str, Any]:
+        """规划学习路径（内部实现）"""
         graph = get_graph_store()
         mastered = profile.get("mastered_concepts", [])
 
@@ -56,7 +53,14 @@ class NavigatorAgent(BaseAgent):
 知识图谱推荐路径：{graph_path}
 学生画像：{json.dumps(profile, ensure_ascii=False)}
 
-请输出最终学习路径 JSON。"""
+请输出最终学习路径 JSON，并包含每条路径推荐理由：
+{{
+  "path": ["知识点1", "知识点2", "目标知识点"],
+  "path_explanation": ["因为...", "由于...", "最终到达..."],
+  "estimated_minutes": 60,
+  "reason": "整体规划理由",
+  "focus_concept": "当前重点知识点"
+}}"""
 
         raw = self.think(prompt)
         llm_result = self._extract_json(raw)
@@ -84,8 +88,9 @@ class NavigatorAgent(BaseAgent):
 
         return {
             "path": unique_path,
+            "path_explanation": llm_result.get("path_explanation", []) if llm_result else [],
             "estimated_minutes": estimated,
-            "reason": llm_result.get("reason", "基于知识图谱前置依赖规划"),
+            "reason": llm_result.get("reason", "基于知识图谱前置依赖规划") if llm_result else "基于知识图谱前置依赖规划",
             "focus_concept": unique_path[-1] if unique_path else target_concept,
             "graph_path": graph_path,
             "raw": raw,

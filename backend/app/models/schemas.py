@@ -95,3 +95,114 @@ class GraphEdge(BaseModel):
 class GraphData(BaseModel):
     nodes: List[GraphNode]
     edges: List[GraphEdge]
+
+
+# =============================================================================
+# 新增：资源生成任务与资源模型
+# =============================================================================
+
+class GenerationTask(BaseModel):
+    task_id: str
+    session_id: str
+    concept: str
+    status: str = Field("pending", description="pending / planning / generating / debating / rendering / completed / failed")
+    progress: int = Field(0, ge=0, le=100)
+    stage_message: str = ""
+    result: Dict[str, Any] = Field(default_factory=dict)
+    error_message: str = ""
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class Resource(BaseModel):
+    resource_id: str
+    task_id: Optional[str] = None
+    session_id: str
+    concept: str
+    version: int = 1
+    document: Optional[str] = None
+    mindmap: Optional[str] = None
+    exercises: Optional[List[Dict[str, Any]]] = None
+    code_cases: Optional[List[Dict[str, Any]]] = None
+    audio_text: Optional[str] = None
+    debate_report: Optional[DebateReport] = None
+    status: str = Field("approved", description="approved / rejected / cached / draft")
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class ResourceVersion(BaseModel):
+    version_id: Optional[int] = None
+    resource_id: str
+    concept: str
+    version: int
+    change_reason: str
+    triggered_by: str
+    content_snapshot: Dict[str, Any] = Field(default_factory=dict)
+    created_at: Optional[str] = None
+
+
+# =============================================================================
+# 新增：代码提交与掌握度模型
+# =============================================================================
+
+class CodeSubmission(BaseModel):
+    submission_id: str
+    session_id: str
+    exercise_id: Optional[str] = None
+    concept: str
+    code: str
+    output: Optional[str] = None
+    passed: bool = False
+    error_type: str = Field("", description="syntax / runtime / logic / passed")
+    execution_time: Optional[float] = None
+    created_at: Optional[str] = None
+
+
+class MasteryState(BaseModel):
+    id: Optional[int] = None
+    session_id: str
+    concept: str
+    p_known: float = Field(0.0, ge=0.0, le=1.0, description="BKT 掌握概率 0-1")
+    evidence_count: int = 0
+    last_updated: Optional[str] = None
+
+
+class HeatmapData(BaseModel):
+    concept: str
+    p_known: float
+
+
+# =============================================================================
+# 新增：认知风格证据与资源反馈模型
+# =============================================================================
+
+class CognitiveEvidence(BaseModel):
+    id: Optional[int] = None
+    session_id: str
+    dimension: str = Field(..., description="cognitive_field / cognitive_modality / learning_pace / etc")
+    evidence_type: str = Field(..., description="click_mindmap / run_code / stay_audio / expand_hint / etc")
+    weight: float = Field(..., ge=0.0, le=1.0)
+    description: Optional[str] = None
+    source_event_id: Optional[int] = None
+    created_at: Optional[str] = None
+
+
+class ResourceFeedback(BaseModel):
+    feedback_id: Optional[int] = None
+    session_id: str
+    resource_id: str
+    concept: str
+    rating: Optional[int] = Field(None, ge=1, le=5)
+    error_report: Optional[str] = None
+    confusion_marked: bool = False
+    created_at: Optional[str] = None
+
+
+class ResourceFeedbackStats(BaseModel):
+    concept: str
+    total_feedback: int
+    confusion_count: int
+    confusion_rate: float
+    average_rating: Optional[float]
+    error_reports: List[str]
