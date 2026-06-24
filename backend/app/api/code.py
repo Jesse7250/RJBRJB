@@ -8,8 +8,13 @@ TODO:
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
+import uuid
+
 from app.services.code_executor import CodeExecutor
-from app.services.database import log_event
+from app.services.database import (
+    create_code_submission,
+    log_event,
+)
 
 router = APIRouter()
 
@@ -31,6 +36,21 @@ async def execute_code(payload: ExecuteRequest, request: Request):
     executor = CodeExecutor()
     result = executor.execute(payload.code)
 
+    # 持久化代码提交记录
+    error_type = ""
+    if not result.get("success"):
+        error_type = result.get("error_type", "runtime")
+    create_code_submission(
+        submission_id=str(uuid.uuid4()),
+        session_id="anonymous",
+        concept="",
+        code=payload.code,
+        output=result.get("stdout", "") + "\n" + result.get("stderr", ""),
+        passed=result.get("success", False),
+        error_type=error_type,
+        execution_time=result.get("execution_time", 0.0),
+    )
+
     # 记录代码执行事件
     log_event("anonymous", "code_executed", {
         "code": payload.code,
@@ -47,8 +67,24 @@ async def judge_code(payload: JudgeRequest, request: Request):
     executor = CodeExecutor()
     result = executor.judge(payload.code, payload.expected_output)
 
+    session_id = payload.session_id or "anonymous"
+    error_type = "passed" if result.get("passed") else result.get("error_type", "logic")
+
+    # 持久化代码提交记录
+    create_code_submission(
+        submission_id=str(uuid.uuid4()),
+        session_id=session_id,
+        exercise_id="",
+        concept=payload.concept or "",
+        code=payload.code,
+        output=result.get("actual_output", ""),
+        passed=result.get("passed", False),
+        error_type=error_type,
+        execution_time=result.get("execution_time", 0.0),
+    )
+
     # 记录练习提交事件
-    log_event(payload.session_id or "anonymous", "exercise_submitted", {
+    log_event(session_id, "exercise_submitted", {
         "concept": payload.concept,
         "code": payload.code,
         "expected_output": payload.expected_output,
@@ -65,8 +101,24 @@ async def judge_exercise(payload: JudgeRequest, request: Request):
     executor = CodeExecutor()
     result = executor.judge(payload.code, payload.expected_output)
 
+    session_id = payload.session_id or "anonymous"
+    error_type = "passed" if result.get("passed") else result.get("error_type", "logic")
+
+    # 持久化代码提交记录
+    create_code_submission(
+        submission_id=str(uuid.uuid4()),
+        session_id=session_id,
+        exercise_id="",
+        concept=payload.concept or "",
+        code=payload.code,
+        output=result.get("actual_output", ""),
+        passed=result.get("passed", False),
+        error_type=error_type,
+        execution_time=result.get("execution_time", 0.0),
+    )
+
     # 记录练习提交事件
-    log_event(payload.session_id or "anonymous", "exercise_submitted", {
+    log_event(session_id, "exercise_submitted", {
         "concept": payload.concept,
         "code": payload.code,
         "expected_output": payload.expected_output,

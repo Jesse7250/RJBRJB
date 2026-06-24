@@ -12,6 +12,7 @@ TODO:
 - [待完成] 支持批量生成多个知识点的学习资源
 """
 import json
+import uuid
 
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
@@ -19,9 +20,13 @@ from fastapi.responses import StreamingResponse
 from app.agents.orchestrator import AgentOrchestrator
 from app.models.schemas import StudentProfile
 from app.services.database import (
+    create_debate_record,
+    create_generation_task,
+    create_resource,
     create_session,
     get_session,
     log_event,
+    update_generation_task,
     update_session,
 )
 
@@ -69,18 +74,85 @@ def _save_session(request: Request, session: dict):
     )
 
 
+def _stage_to_status(stage: str) -> str:
+    """将 SSE stage 映射为任务状态"""
+    mapping = {
+        "cache": "completed",
+        "builder": "generating",
+        "validation": "generating",
+        "revision": "debating",
+        "debate": "debating",
+        "complete": "completed",
+    }
+    return mapping.get(stage, "generating")
+
+
+def _persist_resource_and_debate(task_id: str, session_id: str, result: dict):
+    """将生成结果持久化到 resource 和 debate_record 表"""
+    concept = result.get("concept", "")
+    package = result.get("package", {})
+    debate_report = result.get("debate_report", {})
+
+    resource_id = str(uuid.uuid4())
+    debate_id = str(uuid.uuid4())
+
+    create_resource(
+        resource_id=resource_id,
+        task_id=task_id,
+        session_id=session_id,
+        concept=concept,
+        document=package.get("document"),
+        mindmap=package.get("mindmap"),
+        exercises=package.get("exercises"),
+        code_cases=package.get("code_cases"),
+        audio_text=package.get("audio_text"),
+        debate_report=debate_report,
+        status="approved" if debate_report.get("status") in ("PASSED", "MODIFIED") else "rejected",
+    )
+
+    create_debate_record(
+        debate_id=debate_id,
+        task_id=task_id,
+        resource_id=resource_id,
+        concept=concept,
+        status=debate_report.get("status", "PASSED"),
+        rounds=debate_report.get("rounds"),
+        final_votes=debate_report.get("final_votes"),
+        summary=f"辩论结果：{debate_report.get('status', 'UNKNOWN')}",
+    )
+
+    return resource_id, debate_id
+
+
 @router.post("/generate")
 async def generate_resource(concept: str, request: Request):
     """生成某个知识点的学习资源并执行辩论议会（同步版本）"""
     session = _get_or_create_session(request)
+    session_id = session["session_id"]
+    task_id = str(uuid.uuid4())
+
+    create_generation_task(task_id, session_id, concept, status="pending")
+
     orchestrator = AgentOrchestrator()
     result = orchestrator.generate_resource(session, concept)
 
+    # 持久化生成结果
+    resource_id, debate_id = _persist_resource_and_debate(task_id, session_id, result)
+    update_generation_task(
+        task_id,
+        status="completed",
+        progress=100,
+        stage_message="资源生成与辩论审核完成",
+        result={"resource_id": resource_id, "debate_id": debate_id},
+    )
+
     session["target_concept"] = concept
     _save_session(request, session)
-    log_event(session["session_id"], "resource_generated", {
+    log_event(session_id, "resource_generated", {
         "concept": concept,
         "debate_status": result.get("debate_report", {}).get("status"),
+        "task_id": task_id,
+        "resource_id": resource_id,
     })
 
     return result
@@ -93,14 +165,29 @@ async def generate_resource_for_session(session_id: str, concept: str, request: 
     if not session:
         return {"error": "会话不存在"}
 
+    task_id = str(uuid.uuid4())
+    create_generation_task(task_id, session_id, concept, status="pending")
+
     orchestrator = AgentOrchestrator()
     result = orchestrator.generate_resource(session, concept)
+
+    # 持久化生成结果
+    resource_id, debate_id = _persist_resource_and_debate(task_id, session_id, result)
+    update_generation_task(
+        task_id,
+        status="completed",
+        progress=100,
+        stage_message="资源生成与辩论审核完成",
+        result={"resource_id": resource_id, "debate_id": debate_id},
+    )
 
     session["target_concept"] = concept
     _save_session(request, session)
     log_event(session_id, "resource_generated", {
         "concept": concept,
         "debate_status": result.get("debate_report", {}).get("status"),
+        "task_id": task_id,
+        "resource_id": resource_id,
     })
 
     return result
@@ -119,6 +206,10 @@ async def stream_generate_resource(session_id: str, concept: str, request: Reque
     """
     session = _get_or_create_session(request, session_id)
     orchestrator = AgentOrchestrator()
+    task_id = str(uuid.uuid4())
+
+    create_generation_task(task_id, session_id, concept, status="pending",
+                           stage_message="等待开始生成...")
 
     async def event_generator():
         final_result = None
@@ -126,13 +217,54 @@ async def stream_generate_resource(session_id: str, concept: str, request: Reque
             async for event in orchestrator.generate_resource_stream(
                 session, concept
             ):
+                # 根据事件更新任务状态
+                event_type = event.get("type")
+                if event_type == "progress":
+                    stage = event.get("stage", "generating")
+                    progress = {"builder": 30, "validation": 50, "debate": 70,
+                                "revision": 80, "complete": 100, "cache": 100}.get(stage, 30)
+                    update_generation_task(
+                        task_id,
+                        status=_stage_to_status(stage),
+                        progress=progress,
+                        stage_message=event.get("message", ""),
+                    )
+
                 # SSE 格式：每个事件以 data: 开头，以两个换行结束
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-                if event.get("type") == "complete":
+
+                if event_type == "complete":
                     final_result = event
         except Exception as e:
+            update_generation_task(
+                task_id,
+                status="failed",
+                progress=0,
+                stage_message="生成失败",
+                error_message=str(e),
+            )
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
         finally:
+            # 持久化生成结果
+            if final_result:
+                try:
+                    resource_id, debate_id = _persist_resource_and_debate(
+                        task_id, session_id, final_result
+                    )
+                    update_generation_task(
+                        task_id,
+                        status="completed",
+                        progress=100,
+                        stage_message="资源生成与辩论审核完成",
+                        result={"resource_id": resource_id, "debate_id": debate_id},
+                    )
+                except Exception as e:
+                    update_generation_task(
+                        task_id,
+                        status="failed",
+                        error_message=f"持久化失败: {e}",
+                    )
+
             # 无论成功与否，都保存会话并记录日志
             session["target_concept"] = concept
             _save_session(request, session)
@@ -140,6 +272,7 @@ async def stream_generate_resource(session_id: str, concept: str, request: Reque
                 "concept": concept,
                 "debate_status": final_result.get("debate_report", {}).get("status") if final_result else "ERROR",
                 "success": final_result is not None,
+                "task_id": task_id,
             })
 
     return StreamingResponse(

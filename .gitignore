@@ -63,3 +63,7 @@ Thumbs.db
 # Test artifacts
 backend/ablation_report.json
 backend/tmp_inspect_code.py
+
+# Runtime logs & screenshots
+logs/
+*.err
