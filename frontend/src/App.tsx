@@ -36,6 +36,7 @@ import {
   sessionApi,
   type AgentResponse,
   type CodeVariable,
+  type EvidenceItem,
   type GraphData,
   type ResourceDetail,
   type ResourceVersion,
@@ -1088,7 +1089,7 @@ function App() {
           <section className="module-page flex-1">
             {activeNav === 'profile' && (
               <div className="module-grid profile-page">
-                <ProfilePanel session={session} masteredCount={masteredCount} targetConcept={targetConcept} />
+                <ProfilePanel session={session} masteredCount={masteredCount} targetConcept={targetConcept} stats={stats} />
                 <AgentPanel onAgentAction={runAgentAction} />
                 <WorkspaceDock
                   activeNav={activeNav}
@@ -2270,11 +2271,21 @@ function CodeCommand({
   )
 }
 
-function ProfilePanel({ session, masteredCount, targetConcept }: { session: SessionResponse | null; masteredCount: number; targetConcept: string }) {
+function ProfilePanel({ session, masteredCount, targetConcept, stats }: { session: SessionResponse | null; masteredCount: number; targetConcept: string; stats: SessionStats | null }) {
   const profile = session?.profile
   const [expanded, setExpanded] = useState(false)
+  const [evidence, setEvidence] = useState<Record<string, EvidenceItem[]>>({})
+  const [evidenceOpen, setEvidenceOpen] = useState(false)
   const modality = profile?.cognitive_modality === 'auditory' ? '听觉型' : profile?.cognitive_modality === 'kinesthetic' ? '动觉型' : '视觉型'
   const field = profile?.cognitive_field === 'independent' ? '场独立' : '场依存'
+
+  useEffect(() => {
+    if (!session?.session_id) return
+    sessionApi
+      .getProfileEvidence(session.session_id)
+      .then((res) => setEvidence(res.data.evidence || {}))
+      .catch(() => setEvidence({}))
+  }, [session?.session_id, stats?.chat_count])
 
   return (
     <Panel className="profile-panel min-h-[278px]">
@@ -2326,6 +2337,41 @@ function ProfilePanel({ session, masteredCount, targetConcept }: { session: Sess
             <span>{profile?.mastered_concepts?.slice(0, 3).join('、') || '变量基础、条件判断、循环结构'}</span>
           </div>
         </motion.div>
+      )}
+      {Object.keys(evidence).length > 0 && (
+        <div className="mt-4 rounded-lg border border-white/10 bg-white/5 p-3">
+          <button
+            type="button"
+            onClick={() => setEvidenceOpen((value) => !value)}
+            className="flex w-full items-center justify-between text-xs font-bold text-indigo-200"
+            aria-expanded={evidenceOpen}
+          >
+            <span>画像证据（{Object.keys(evidence).length} 个维度）</span>
+            <span>{evidenceOpen ? '收起' : '展开'}</span>
+          </button>
+          {evidenceOpen && (
+            <motion.div
+              className="mt-2 space-y-2"
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.2 }}
+            >
+              {Object.entries(evidence).map(([dim, items]) => (
+                <div key={dim}>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{dim}</p>
+                  <ul className="mt-1 space-y-1">
+                    {items.slice(0, 3).map((item, idx) => (
+                      <li key={idx} className="text-xs text-slate-300">
+                        · {item.evidence_type}
+                        {item.description && <span className="text-slate-500"> — {item.description}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </motion.div>
+          )}
+        </div>
       )}
       <div className="profile-insight-strip">
         <div>
