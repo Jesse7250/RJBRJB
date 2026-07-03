@@ -90,14 +90,16 @@ npm run build
 
 结果：TypeScript 检查与 Vite 打包均通过。
 
-## 5. 仍需后续处理
+## 5. 本次后续补充（同日完成）
 
-- **前端 `App.tsx` 单文件拆分**：当前仍 1700+ 行，建议后续将 `ProfilePanel`、`AgentPanel`、`LearningMeter`、`StreakCard`、`HeatmapPanel`、`ResourceLibraryPanel` 等拆为独立组件。
+- **前端 `App.tsx` 单文件拆分**：已将 `ProfilePanel`、`AgentPanel`、`LearningMeter`、`StreakCard`、`HeatmapPanel`、`ResourceLibraryPanel`、`TopBar`、`WorkspaceDock` 抽到 `frontend/src/components/command-center/`，公共类型抽到 `types.ts`。`App.tsx` 从约 2814 行降至约 1707 行，`npm run build` 通过。
+
+## 6. 仍需后续处理
 - **知识图谱后端驱动布局**：C 同学报告 4.4 提到由后端返回节点坐标/路径，可后续在 `backend/app/api/graph.py` 补充 `/graph/layout` 与 `/graph/path`。
 - **BKT 默认参数说明**：C 同学报告 5.6 提到默认 guess/slip 容易误导，可在 `backend/app/services/bkt.py` 返回 `is_default`、`sample_count`、`last_updated` 等字段。
 - **资源生成接口改为 POST JSON body**：C 同学报告 5.7 提到复杂 profile 不适合 query 参数，可后续统一为 JSON body。
 
-## 6. 与 C 同学更新报告的对应关系
+## 7. 与 C 同学更新报告的对应关系
 
 | C 同学报告章节 | 本次后端处理 |
 |---|---|
