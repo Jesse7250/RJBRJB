@@ -32,7 +32,7 @@ import json
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, BackgroundTasks, Request
 from fastapi.responses import StreamingResponse
 
 from app.agents.orchestrator import AgentOrchestrator
@@ -437,8 +437,11 @@ async def get_resource_evolution(concept: str):
 
 
 @router.post("/feedback")
-async def create_feedback(payload: ResourceFeedback):
-    """提交学生对资源的反馈（评分、错误报告、困惑标记）"""
+async def create_feedback(payload: ResourceFeedback, background_tasks: BackgroundTasks):
+    """提交学生对资源的反馈（评分、错误报告、困惑标记）
+
+    后台会结合错误率、困惑率和平均评分判断是否触发知识熔炉资源重审。
+    """
     add_resource_feedback(
         session_id=payload.session_id,
         resource_id=payload.resource_id,
@@ -447,10 +450,16 @@ async def create_feedback(payload: ResourceFeedback):
         error_report=payload.error_report or "",
         confusion_marked=payload.confusion_marked or False,
     )
-    # 如果错误报告或困惑标记较多，后台触发知识熔炉资源重审
-    if payload.error_report or payload.confusion_marked:
-        from app.services.knowledge_furnace import trigger_resource_review
-        trigger_resource_review(payload.concept, "feedback")
+
+    def _maybe_trigger_review():
+        from app.services.knowledge_furnace import should_trigger_resource_review, trigger_resource_review
+        should, stats = should_trigger_resource_review(payload.concept)
+        if should:
+            trigger_resource_review(payload.concept, triggered_by="feedback")
+        return should, stats
+
+    background_tasks.add_task(_maybe_trigger_review)
+
     return {"success": True, "concept": payload.concept}
 
 

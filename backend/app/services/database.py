@@ -199,11 +199,19 @@ def init_db(db: Database):
             "evidence_type": str,   # click_mindmap / run_code / stay_audio / expand_hint / etc
             "weight": float,
             "description": str,
+            "source_value": str,    # 该证据暗示的画像取值（如 visual / slow）
             "source_event_id": int,
             "created_at": str,
         }, pk="id", if_not_exists=True)
         db["cognitive_profile_evidence"].create_index(["session_id"], if_not_exists=True)
         db["cognitive_profile_evidence"].create_index(["dimension"], if_not_exists=True)
+    else:
+        # 兼容旧表：补充 source_value 字段
+        existing_cols = {c.name for c in db["cognitive_profile_evidence"].columns}
+        if "source_value" not in existing_cols:
+            db.execute(
+                "ALTER TABLE cognitive_profile_evidence ADD COLUMN source_value TEXT DEFAULT ''"
+            )
 
     # === 资源反馈（知识熔炉数据来源） ===
     if "resource_feedback" not in db.table_names():
@@ -866,7 +874,8 @@ def get_mastery_heatmap(session_id: str) -> Dict[str, float]:
 
 def add_cognitive_evidence(session_id: str, dimension: str, evidence_type: str,
                            weight: float, description: str = "",
-                           source_event_id: Optional[int] = None):
+                           source_event_id: Optional[int] = None,
+                           source_value: str = ""):
     """添加认知风格证据"""
     db = get_db()
     try:
@@ -876,6 +885,7 @@ def add_cognitive_evidence(session_id: str, dimension: str, evidence_type: str,
             "evidence_type": evidence_type,
             "weight": weight,
             "description": description,
+            "source_value": source_value,
             "source_event_id": source_event_id,
             "created_at": _now(),
         })
@@ -1036,41 +1046,79 @@ def get_global_error_stats(concept: Optional[str] = None) -> Dict[str, Any]:
 
 def log_behavior_event(session_id: str, event_type: str, dimension: Optional[str] = None,
                        concept: Optional[str] = None, weight: float = 1.0,
-                       description: Optional[str] = None):
+                       description: Optional[str] = None, payload: Optional[dict] = None):
     """记录前端行为事件到 learning_events 并自动生成认知风格证据
 
     前端只需调用 POST /{session_id}/behavior 接口，此函数负责：
     1. 记录原始事件到 learning_events
-    2. 根据事件类型自动推断认知维度并写入 cognitive_profile_evidence
+    2. 根据事件类型自动推断认知维度、画像取值并写入 cognitive_profile_evidence
     """
+    payload = payload or {}
     # 1. 记录原始事件
     log_event(session_id, event_type, {
         "concept": concept or "",
         "weight": weight,
         "description": description or "",
+        **payload,
     }, concept=concept)
 
-    # 2. 映射事件类型到认知维度
+    # 2. 映射事件类型到认知维度与画像取值
+    # 注意：BehaviorEventType 枚举值为大写，但这里统一兼容大小写
+    event_type_norm = event_type.lower()
     dimension_map = {
-        "mindmap_clicked": "cognitive_modality",
-        "code_executed": "cognitive_modality",
-        "hint_expanded": "cognitive_field",
-        "page_stay": "learning_pace",
-        "resource_switched": "cognitive_modality",
-        "profile_viewed": "goal_orientation",
-        "path_viewed": "goal_orientation",
-        "audio_played": "cognitive_modality",
-        "exercise_attempt": "cognitive_field",
+        "mindmap_clicked": ("cognitive_modality", "visual"),
+        "graph_node_selected": ("cognitive_modality", "visual"),
+        "code_executed": ("cognitive_modality", "kinesthetic"),
+        "code_case_viewed": ("cognitive_modality", "kinesthetic"),
+        "hint_expanded": ("cognitive_field", "dependent"),
+        "exercise_attempt": ("cognitive_modality", "kinesthetic"),
+        "exercise_attempt_failed": ("cognitive_field", "dependent"),
+        "self_exploration": ("cognitive_field", "independent"),
+        "page_stay": ("learning_pace", None),
+        "resource_switched": ("cognitive_modality", "visual"),
+        "profile_viewed": ("goal_orientation", "application"),
+        "path_viewed": ("goal_orientation", "application"),
+        "audio_played": ("cognitive_modality", "auditory"),
+        "cognitive_style_preview": ("cognitive_modality", None),
     }
-    dim = dimension or dimension_map.get(event_type)
-    if dim:
-        add_cognitive_evidence(
-            session_id=session_id,
-            dimension=dim,
-            evidence_type=event_type,
-            weight=weight,
-            description=description or f"用户触发了 {event_type} 事件",
-        )
+    mapped = dimension_map.get(event_type_norm)
+    if not mapped:
+        return
+    dim, fixed_value = mapped
+    # page_stay 根据停留时长推断节奏；cognitive_style_preview 从 payload/description 取模式
+    source_value = fixed_value
+    if source_value is None:
+        if event_type_norm == "page_stay":
+            source_value = "slow" if weight > 60 else ("fast" if weight < 15 else "normal")
+        elif event_type_norm == "cognitive_style_preview":
+            source_value = payload.get("mode") or _extract_mode_from_description(description or "")
+    if dimension:
+        dim = dimension
+    add_cognitive_evidence(
+        session_id=session_id,
+        dimension=dim,
+        evidence_type=event_type_norm,
+        weight=weight,
+        description=description or f"用户触发了 {event_type} 事件",
+        source_value=source_value or "",
+    )
+
+
+def _extract_mode_from_description(description: str) -> str:
+    """从描述中提取认知模态取值"""
+    if not description:
+        return ""
+    text = description.lower()
+    for mode in ("visual", "auditory", "kinesthetic"):
+        if mode in text:
+            return mode
+    if "视觉" in description:
+        return "visual"
+    if "听觉" in description:
+        return "auditory"
+    if "动觉" in description:
+        return "kinesthetic"
+    return ""
 
 
 # =============================================================================

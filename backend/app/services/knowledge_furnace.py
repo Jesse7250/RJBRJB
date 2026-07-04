@@ -16,7 +16,7 @@ TODO:
 - [已完成] 基于全局错误率判断是否需要重审
 - [已完成] 调用 Orchestrator 重新生成资源并保存版本演进
 - [已完成] 与代码判题接口联动，后台触发
-- [待完成] 接入资源反馈（confusion_marked、rating）作为辅助触发信号
+- [已完成] 接入资源反馈（confusion_marked、rating）作为辅助触发信号
 - [待完成] 增加重审任务队列，避免多个提交同时触发多次重审
 """
 import os
@@ -36,14 +36,48 @@ from app.services.database import (
 ERROR_RATE_THRESHOLD = float(os.environ.get("FURNACE_ERROR_RATE_THRESHOLD", "0.6"))
 MIN_SUBMISSIONS = int(os.environ.get("FURNACE_MIN_SUBMISSIONS", "5"))
 
+# 资源反馈触发阈值
+CONFUSION_RATE_THRESHOLD = float(os.environ.get("FURNACE_CONFUSION_RATE_THRESHOLD", "0.5"))
+LOW_RATING_THRESHOLD = float(os.environ.get("FURNACE_LOW_RATING_THRESHOLD", "2.5"))
+MIN_FEEDBACK_COUNT = int(os.environ.get("FURNACE_MIN_FEEDBACK_COUNT", "3"))
+
 
 def should_trigger_resource_review(concept: str) -> Tuple[bool, Dict[str, Any]]:
-    """判断某知识点是否需要触发资源重审"""
+    """判断某知识点是否需要触发资源重审
+
+    触发条件（满足任一即可）：
+    1. 代码提交错误率 >= ERROR_RATE_THRESHOLD 且样本数 >= MIN_SUBMISSIONS；
+    2. 资源反馈困惑率 >= CONFUSION_RATE_THRESHOLD 且反馈数 >= MIN_FEEDBACK_COUNT；
+    3. 资源反馈平均评分 <= LOW_RATING_THRESHOLD 且反馈数 >= MIN_FEEDBACK_COUNT。
+    """
+    from app.services.database import get_resource_feedback_stats
+
     stats = get_global_error_stats(concept)
-    total = stats.get("total_submissions", 0)
+    feedback_stats = get_resource_feedback_stats(concept)
+
+    total_submissions = stats.get("total_submissions", 0)
     error_rate = stats.get("error_rate", 0.0)
-    should = total >= MIN_SUBMISSIONS and error_rate >= ERROR_RATE_THRESHOLD
-    return should, stats
+    error_trigger = total_submissions >= MIN_SUBMISSIONS and error_rate >= ERROR_RATE_THRESHOLD
+
+    total_feedback = feedback_stats.get("total_feedback", 0)
+    confusion_rate = feedback_stats.get("confusion_rate", 0.0)
+    avg_rating = feedback_stats.get("average_rating")
+    confusion_trigger = (
+        total_feedback >= MIN_FEEDBACK_COUNT and confusion_rate >= CONFUSION_RATE_THRESHOLD
+    )
+    rating_trigger = (
+        total_feedback >= MIN_FEEDBACK_COUNT
+        and avg_rating is not None
+        and avg_rating <= LOW_RATING_THRESHOLD
+    )
+
+    combined_stats = {
+        **stats,
+        "feedback_total": total_feedback,
+        "confusion_rate": confusion_rate,
+        "average_rating": avg_rating,
+    }
+    return error_trigger or confusion_trigger or rating_trigger, combined_stats
 
 
 def trigger_resource_review(

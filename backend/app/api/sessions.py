@@ -63,6 +63,7 @@ from app.services.database import (
     log_event,
     update_session,
 )
+from app.services.profile_evidence import update_profile_from_evidence
 from app.services.auth import get_current_user
 from app.services.graph_factory import get_graph_store
 from app.services.safety_filter import get_safety_filter
@@ -354,15 +355,27 @@ async def log_behavior_event(
     if not session:
         return {"success": False, "error": "会话不存在"}
 
+    raw_payload = payload.payload or {}
     log_behavior_evidence(
         session_id=session_id,
         event_type=payload.event_type.value,
         concept=payload.concept,
-        weight=payload.payload.get("weight", 1.0) if payload.payload else 1.0,
-        description=payload.payload.get("description", "") if payload.payload else "",
+        weight=raw_payload.get("weight", 1.0),
+        description=raw_payload.get("description", ""),
+        payload=raw_payload,
     )
 
-    return {"success": True, "event_type": payload.event_type.value}
+    # 根据累积的认知证据自动更新画像
+    update_result = update_profile_from_evidence(session, session_id)
+    if update_result["updated"]:
+        _save_session(request.app, session)
+
+    return {
+        "success": True,
+        "event_type": payload.event_type.value,
+        "profile_changes": update_result["changes"],
+        "profile": update_result["profile"],
+    }
 
 
 @router.post("/{session_id}/chat", response_model=AgentResponse)

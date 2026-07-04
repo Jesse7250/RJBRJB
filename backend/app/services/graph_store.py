@@ -56,6 +56,28 @@ class GraphStore(ABC):
         """计算学习路径"""
         ...
 
+    def get_dependency_edges(self) -> List[dict]:
+        """获取所有 PREREQUISITE_OF 依赖边（默认实现，子类可重写以提升性能）。
+
+        返回每条边至少包含：source, target, strength。
+        """
+        edges = []
+        seen = set()
+        for c in self.get_all_concepts():
+            name = c.get("name")
+            if not name:
+                continue
+            concept = self.get_concept(name)
+            if not concept:
+                continue
+            for pre in concept.get("prerequisites", []):
+                key = (pre, name)
+                if key in seen:
+                    continue
+                seen.add(key)
+                edges.append({"source": pre, "target": name, "strength": 0.8})
+        return edges
+
     @abstractmethod
     def check_forbidden_concepts(
         self, content: str, target_concept: str

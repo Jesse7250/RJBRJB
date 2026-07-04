@@ -29,6 +29,7 @@ from neo4j import GraphDatabase
 
 from app.core.config import get_settings
 from app.services.graph_store import GraphStore
+from app.services.path_planner import astar_learning_path
 
 
 class Neo4jClient(GraphStore):
@@ -117,43 +118,27 @@ class Neo4jClient(GraphStore):
             )
             return [dict(record) for record in result]
 
-    def get_learning_path(self, from_concepts: List[str], to_concept: str) -> List[str]:
-        """基于最短路径计算学习路径（当前使用 Neo4j shortestPath）"""
+    def get_dependency_edges(self) -> List[dict]:
+        """获取 Neo4j 中所有 PREREQUISITE_OF 边，附带 strength"""
         with self.driver.session() as session:
-            if to_concept in from_concepts:
-                return [to_concept]
-
             result = session.run(
                 """
-                MATCH path = shortestPath(
-                    (start:Concept)-[:PREREQUISITE_OF*]->(target:Concept {name: $to_concept})
-                )
-                WHERE start.name IN $from_concepts
-                RETURN [n in nodes(path) | n.name] as path_nodes
-                ORDER BY length(path) ASC
-                LIMIT 1
-                """,
-                {"from_concepts": from_concepts, "to_concept": to_concept},
-            ).single()
-
-            if result:
-                return result["path_nodes"]
-
-            result = session.run(
+                MATCH (src:Concept)-[r:PREREQUISITE_OF]->(tgt:Concept)
+                RETURN src.name AS source, tgt.name AS target,
+                       coalesce(r.strength, 0.8) AS strength
                 """
-                MATCH path = (start:Concept {name: $to_concept})<-[:PREREQUISITE_OF*]-(pre:Concept)
-                RETURN [n in nodes(path) | n.name] as path_nodes
-                ORDER BY length(path) ASC
-                LIMIT 1
-                """,
-                {"to_concept": to_concept},
-            ).single()
+            )
+            return [dict(record) for record in result]
 
-            if result:
-                path = result["path_nodes"]
-                return list(reversed(path))
-
-            return [to_concept]
+    def get_learning_path(self, from_concepts: List[str], to_concept: str) -> List[str]:
+        """基于 A* 算法计算最优学习路径"""
+        edges = self.get_dependency_edges()
+        difficulties = {}
+        for c in self.get_all_concepts():
+            name = c.get("name")
+            if name:
+                difficulties[name] = c.get("difficulty", 3)
+        return astar_learning_path(edges, difficulties, from_concepts, to_concept)
 
     # 基础通用概念白名单，教学中顺带提及不应视为超纲
     _BASIC_WHITELIST = {

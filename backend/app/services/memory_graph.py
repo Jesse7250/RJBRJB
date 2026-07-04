@@ -26,6 +26,7 @@ import re
 from typing import Dict, List, Optional, Set
 
 from app.services.graph_store import GraphStore
+from app.services.path_planner import astar_learning_path
 
 
 class MemoryGraph(GraphStore):
@@ -242,29 +243,22 @@ class MemoryGraph(GraphStore):
         pids = [e["pitfall_id"] for e in self.has_pitfall_edges if e["concept"] == name]
         return [dict(self.pitfalls[pid]) for pid in pids if pid in self.pitfalls]
 
+    def get_dependency_edges(self) -> List[dict]:
+        """返回内存图中的所有 PREREQUISITE_OF 边，附带 strength"""
+        return [
+            {
+                "source": e["source"],
+                "target": e["target"],
+                "strength": e.get("strength", 0.8),
+            }
+            for e in self.prerequisite_edges
+        ]
+
     def get_learning_path(self, from_concepts: List[str], to_concept: str) -> List[str]:
-        """基于 BFS 的最短路径（当前为贪心最短路径，未来可替换为 A*）"""
-        if to_concept in from_concepts:
-            return [to_concept]
-
-        # 找到从任一已掌握节点到目标节点的最短路径（沿 PREREQUISITE_OF 正向）
-        best_path: Optional[List[str]] = None
-        for start in from_concepts:
-            if start not in self.concepts:
-                continue
-            path = self._bfs(start, to_concept)
-            if path and (best_path is None or len(path) < len(best_path)):
-                best_path = path
-
-        if best_path:
-            return best_path
-
-        # 反向查找：从目标节点逆向依赖链
-        path = self._reverse_path(to_concept)
-        if path:
-            return path
-
-        return [to_concept]
+        """基于 A* 算法计算最优学习路径"""
+        edges = self.get_dependency_edges()
+        difficulties = {name: c.get("difficulty", 3) for name, c in self.concepts.items()}
+        return astar_learning_path(edges, difficulties, from_concepts, to_concept)
 
     def _bfs(self, start: str, goal: str) -> Optional[List[str]]:
         """从 start 沿 PREREQUISITE_OF 正向搜索到 goal"""
