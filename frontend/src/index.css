@@ -3249,3 +3249,75 @@
     display: none;
   }
 }
+
+/* 资源反馈面板 */
+.resource-feedback {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.resource-feedback-stars {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.feedback-star {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.25);
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.15s ease;
+}
+
+.feedback-star:hover,
+.feedback-star.active {
+  color: #f5b03d;
+}
+
+.resource-feedback-stars span {
+  margin-left: 0.5rem;
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+.resource-feedback-check {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: #cbd5e1;
+  cursor: pointer;
+}
+
+.resource-feedback-check input[type="checkbox"] {
+  accent-color: #f5b03d;
+}
+
+.resource-feedback textarea {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0.4rem;
+  padding: 0.5rem;
+  color: #f1f5f9;
+  font-size: 0.8rem;
+  resize: vertical;
+}
+
+.resource-feedback textarea::placeholder {
+  color: #64748b;
+}
+
+.resource-feedback-message {
+  font-size: 0.75rem;
+  color: #34d399;
+}

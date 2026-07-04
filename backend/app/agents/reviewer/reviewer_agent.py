@@ -33,6 +33,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from app.agents.base import AgentMessage, BaseAgent
+from app.agents.llm import MockLLMProvider
 from app.agents.reviewer.debate_council import DebateCouncil
 from app.agents.reviewer.evaluator import LearningEvaluator
 from app.agents.reviewer.socrates import SocratesTutor
@@ -143,6 +144,9 @@ class ReviewerAgent(BaseAgent):
         # 3. 根据风险选择审核模式：高风险/含代码走 full，否则走 fast
         if mode is None:
             mode = self._select_review_mode(package, concept, all_forbidden)
+        # Mock 模式下完整辩论容易超时，强制使用快速审核保证演示可用
+        if isinstance(self.llm, MockLLMProvider) and mode != 'fast':
+            mode = 'fast'
 
         session_id = message.context.get("session_id", "")
         sub_started = datetime.now(timezone.utc).isoformat()

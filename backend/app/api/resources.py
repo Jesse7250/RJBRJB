@@ -483,11 +483,32 @@ async def get_thinking_path(concept: str):
     task = find_latest_generation_task_by_concept(concept)
     if task:
         status = task.get("status") or "pending"
+        is_completed = status == "completed"
         steps = [
-            {"agent": "Navigator", "stage": "navigator", "message": f"正在规划「{concept}」的学习路径...", "icon": "map"},
-            {"agent": "Generator", "stage": "builder", "message": f"正在为「{concept}」生成个性化教学资源...", "icon": "sparkles"},
-            {"agent": "Reviewer", "stage": "debate", "message": task.get("stage_message") or "正在提交辩论议会审核...", "icon": "scale"},
-            {"agent": "System", "stage": "complete", "message": "资源生成流程全部完成。" if status == "completed" else f"当前状态：{status}", "icon": "check"},
+            {
+                "agent": "Navigator",
+                "stage": "navigator",
+                "message": f"已完成「{concept}」学习路径规划" if is_completed else f"正在规划「{concept}」的学习路径...",
+                "icon": "map",
+            },
+            {
+                "agent": "Generator",
+                "stage": "builder",
+                "message": f"已完成「{concept}」教学资源生成" if is_completed else f"正在为「{concept}」生成个性化教学资源...",
+                "icon": "sparkles",
+            },
+            {
+                "agent": "Reviewer",
+                "stage": "debate",
+                "message": task.get("stage_message") or "正在提交辩论议会审核...",
+                "icon": "scale",
+            },
+            {
+                "agent": "System",
+                "stage": "complete",
+                "message": "资源生成流程全部完成。" if is_completed else f"当前状态：{status}",
+                "icon": "check",
+            },
         ]
     else:
         steps = [

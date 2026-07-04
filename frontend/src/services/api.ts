@@ -182,6 +182,15 @@ export interface ThinkingStep {
   timestamp?: string
 }
 
+export interface ResourceFeedbackRequest {
+  session_id: string
+  resource_id: string
+  concept: string
+  rating?: number
+  error_report?: string
+  confusion_marked?: boolean
+}
+
 // 学习资源相关接口：同步生成、流式生成、版本演进、思维路径、失败提交种子
 export const resourceApi = {
   generate: (concept: string, profile?: any) =>
@@ -211,6 +220,9 @@ export const resourceApi = {
 
   seedFailedSubmissions: (sessionId: string, concept: string, count: number = 5) =>
     api.post('/code/seed-failed-submissions', { session_id: sessionId, concept, count }),
+
+  submitFeedback: (data: ResourceFeedbackRequest) =>
+    api.post('/resources/feedback', data),
 }
 
 // 代码判题相关接口

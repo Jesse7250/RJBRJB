@@ -113,7 +113,7 @@ export function HeatmapPanel({
         <div className="heatmap-empty">
           <Gauge className="h-6 w-6" />
           <strong>暂无真实掌握度数据</strong>
-          <span>完成练习、判题或点击“重新分析”后，这里会按后端知识点逐项生成热力卡片。</span>
+          <span>在「学习资源」→「练习题」中提交答案，或在「代码沙箱」中运行代码后，BKT 模型会自动更新此处热力图。</span>
         </div>
       )}
       <div className="heatmap-footer">

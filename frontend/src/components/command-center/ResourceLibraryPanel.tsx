@@ -157,6 +157,7 @@ export function ResourceLibraryPanel({
   onRunCode,
   onJudgeExercise,
   onSectionView,
+  onSubmitFeedback,
 }: {
   selectedConcept: string
   resource: ResourceDetail | null
@@ -171,6 +172,7 @@ export function ResourceLibraryPanel({
   onRunCode: (codeText: string) => Promise<CodeRunResult>
   onJudgeExercise: (exercise: Record<string, any>, codeText: string) => Promise<any>
   onSectionView: (section: string) => void
+  onSubmitFeedback?: (data: { rating?: number; confusion_marked?: boolean; error_report?: string }) => Promise<void>
 }) {
   type ResourceSection = 'document' | 'mindmap' | 'exercise' | 'code' | 'audio' | 'review' | 'versions'
   const [activeSection, setActiveSection] = useState<ResourceSection>('document')
@@ -178,6 +180,11 @@ export function ResourceLibraryPanel({
   const [exerciseCode, setExerciseCode] = useState('')
   const [resultText, setResultText] = useState('')
   const [actionLoading, setActionLoading] = useState(false)
+  const [rating, setRating] = useState<number | null>(null)
+  const [confusionMarked, setConfusionMarked] = useState(false)
+  const [errorReport, setErrorReport] = useState('')
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false)
+  const [feedbackMessage, setFeedbackMessage] = useState('')
   const latestVersion = versions[0]
   const snapshot = latestVersion?.content_snapshot || {}
   const activeResource: ResourceDetail | null = resource || (Object.keys(snapshot).length ? {
@@ -251,6 +258,31 @@ export function ResourceLibraryPanel({
       setResultText('代码执行接口暂不可用，请确认后端服务。')
     } finally {
       setActionLoading(false)
+    }
+  }
+
+  const submitFeedback = async () => {
+    if (!onSubmitFeedback) return
+    if (!rating && !confusionMarked && !errorReport.trim()) {
+      setFeedbackMessage('请先选择评分、标记困惑或填写错误报告。')
+      return
+    }
+    setFeedbackSubmitting(true)
+    setFeedbackMessage('')
+    try {
+      await onSubmitFeedback({
+        rating: rating ?? undefined,
+        confusion_marked: confusionMarked,
+        error_report: errorReport.trim() || undefined,
+      })
+      setFeedbackMessage('反馈已提交，感谢你的建议！')
+      setRating(null)
+      setConfusionMarked(false)
+      setErrorReport('')
+    } catch {
+      setFeedbackMessage('反馈提交失败，请稍后重试。')
+    } finally {
+      setFeedbackSubmitting(false)
     }
   }
 
@@ -467,6 +499,48 @@ export function ResourceLibraryPanel({
             </div>
           )}
         </div>
+
+        {hasResource && (
+          <div className="resource-feedback">
+            <p className="resource-inspector-title">资源反馈</p>
+            <div className="resource-feedback-stars">
+              {[1, 2, 3, 4, 5].map((star) => (
+                <button
+                  key={star}
+                  type="button"
+                  onClick={() => setRating(star)}
+                  className={cn('feedback-star', rating && star <= rating && 'active')}
+                  aria-label={`${star} 星`}
+                >
+                  ★
+                </button>
+              ))}
+              <span>{rating ? `${rating} 星` : '点击评分'}</span>
+            </div>
+            <label className="resource-feedback-check">
+              <input
+                type="checkbox"
+                checked={confusionMarked}
+                onChange={(e) => setConfusionMarked(e.target.checked)}
+              />
+              我对这部分内容感到困惑
+            </label>
+            <textarea
+              placeholder="如有错误或不清晰的地方，请在这里描述..."
+              value={errorReport}
+              onChange={(e) => setErrorReport(e.target.value)}
+              rows={2}
+            />
+            <button
+              onClick={submitFeedback}
+              disabled={feedbackSubmitting}
+              className="tool-button w-full"
+            >
+              {feedbackSubmitting ? '提交中...' : '提交反馈'}
+            </button>
+            {feedbackMessage && <span className="resource-feedback-message">{feedbackMessage}</span>}
+          </div>
+        )}
       </div>
     </Panel>
   )

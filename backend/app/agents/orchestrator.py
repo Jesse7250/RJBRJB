@@ -225,7 +225,7 @@ class AgentOrchestrator:
         # 1. 路径规划：调用 Navigator 获取学习路径
         async for e in emit("navigator", f"正在规划「{concept}」的学习路径..."):
             yield e
-        nav_result = await self._safe_run_async(self.navigator, msg.with_stage("navigator"))
+        nav_result = await self._safe_run_async(self.navigator, msg.with_stage("navigator"), timeout=60.0)
         if nav_result.payload.get("fallback"):
             yield {"type": "error", "message": nav_result.payload.get("error", "路径规划失败")}
             return
@@ -236,7 +236,7 @@ class AgentOrchestrator:
         # 2. 资源生成：调用 Generator 生成教学资源包
         async for e in emit("builder", f"正在为「{concept}」生成个性化教学资源..."):
             yield e
-        gen_result = await self._safe_run_async(self.generator, msg.with_stage("generator"))
+        gen_result = await self._safe_run_async(self.generator, msg.with_stage("generator"), timeout=60.0)
         if gen_result.payload.get("fallback"):
             yield {"type": "error", "message": gen_result.payload.get("error", "资源生成失败")}
             return
@@ -257,7 +257,7 @@ class AgentOrchestrator:
             context=context,
             from_agent="generator",
         )
-        review_result = await self._safe_run_async(self.reviewer, review_msg)
+        review_result = await self._safe_run_async(self.reviewer, review_msg, timeout=60.0)
         if review_result.payload.get("fallback"):
             yield {"type": "error", "message": review_result.payload.get("error", "辩论审核失败")}
             return
@@ -311,6 +311,21 @@ class AgentOrchestrator:
         # 默认进入聊天/画像更新流程
         return self._safe_run(self.profiler, msg)
 
+    def _explain_concept(self, concept: str) -> str:
+        """轻量概念解释：用于聊天中的知识询问，避免直接触发完整资源生成"""
+        explanations = {
+            "变量与赋值": "变量就像是一个带标签的盒子，用来存放数据。赋值使用等号 `=`，把右边的值放进左边的变量中。",
+            "基本数据类型": "Python 的基本数据类型包括整数 int、浮点数 float、字符串 str、布尔值 bool 等，它们决定了数据能进行的操作。",
+            "条件语句": "条件语句让程序根据判断结果选择执行路径，最常用的是 `if...elif...else`。",
+            "循环结构": "循环可以重复执行一段代码，`for` 用于遍历序列，`while` 用于条件满足时持续执行。",
+            "函数定义": "函数是把一段可复用代码封装起来的方式，使用 `def` 定义，可以接收参数并返回值。",
+            "文件操作": "文件操作包括打开、读取、写入和关闭文件，通常使用 `open()` 配合 `with` 语句。",
+            "异常处理": "异常处理用 `try...except` 捕获运行时错误，让程序更健壮。",
+            "列表与字典": "列表 list 是有序集合，字典 dict 是键值对集合，是 Python 最常用的数据结构。",
+            "字符串操作": "字符串操作包括拼接、切片、查找、替换等，Python 提供了丰富的方法。",
+        }
+        return explanations.get(concept, f"{concept} 是 Python 学习中的重要知识点，建议你通过讲义、练习和代码案例来掌握它。")
+
     def _knowledge_flow(self, msg: AgentMessage, session: Optional[dict] = None) -> AgentMessage:
         """学习新知识流程：Navigator -> Generator -> Reviewer"""
         # 切到学习新知识点时，重置苏格拉底辅导深度
@@ -324,16 +339,28 @@ class AgentOrchestrator:
                 "suggestions": ["变量与赋值", "for循环", "函数定义", "文件操作", "类与对象"],
             }, stage="profiler", from_agent="Profiler")
 
+        user_msg = msg.payload.get("message", "")
+        explicit_resource_patterns = ["生成资源", "生成讲义", "给我资料", "生成学习资源", "给我资源", "生成课件"]
+        is_explicit_resource_request = any(p in user_msg for p in explicit_resource_patterns)
+
         msg = msg.with_payload(concept=concept).with_context(target_concept=concept)
+
+        # 若用户只是随口询问概念，不走完整资源生成，直接给出轻量解释
+        if not is_explicit_resource_request and ("什么是" in user_msg or "解释一下" in user_msg or "介绍一下" in user_msg):
+            return msg.reply({
+                "message": self._explain_concept(concept),
+                "concept": concept,
+                "suggestions": ["给我一道练习", "生成学习资源", "继续学习下一个知识点"],
+            }, stage="profiler", from_agent="Profiler")
 
         # 1. 路径规划
         nav_msg = msg.with_stage("navigator")
-        nav_result = self._safe_run(self.navigator, nav_msg)
+        nav_result = self._safe_run(self.navigator, nav_msg, timeout=60.0)
         path = nav_result.payload.get("path", [concept])
 
         # 2. 资源生成
         gen_msg = msg.with_stage("generator")
-        gen_result = self._safe_run(self.generator, gen_msg)
+        gen_result = self._safe_run(self.generator, gen_msg, timeout=60.0)
         package = gen_result.payload.get("package")
         if not package:
             return msg.reply({"error": "资源生成失败"}, from_agent="Generator")
@@ -346,7 +373,7 @@ class AgentOrchestrator:
             context=msg.context,
             from_agent="Generator",
         )
-        review_result = self._safe_run(self.reviewer, review_msg)
+        review_result = self._safe_run(self.reviewer, review_msg, timeout=60.0)
 
         # 4. 返回给前端的完整响应
         return msg.reply(

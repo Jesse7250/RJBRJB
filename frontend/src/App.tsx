@@ -73,11 +73,15 @@ const NAV_ITEMS: Array<{ key: NavKey; label: string; icon: ComponentType<{ class
   { key: 'progress', label: '掌握进度', icon: BarChart3 },
 ]
 
-const FALLBACK_TARGET_CONCEPT = '文件读写'
+const FALLBACK_TARGET_CONCEPT = '变量与赋值'
 
 function getInitialTargetConcept() {
   if (typeof window === 'undefined') return FALLBACK_TARGET_CONCEPT
-  const params = new URLSearchParams(window.location.search)
+  // hash 路由下参数位于 # 之后，需从 hash 中解析
+  const hashQuery = window.location.hash.includes('?')
+    ? window.location.hash.split('?')[1]
+    : ''
+  const params = new URLSearchParams(window.location.search || hashQuery)
   return (
     params.get('target_concept') ||
     params.get('target') ||
@@ -354,11 +358,21 @@ function createChatMessage(role: ChatMessage['role'], content: string, agentName
   }
 }
 
+function tryParseJsonString(value: unknown): unknown {
+  if (typeof value !== 'string') return value
+  try {
+    return JSON.parse(value)
+  } catch {
+    return value
+  }
+}
+
 function extractAgentText(response?: AgentResponse | null, preferredModality?: 'visual' | 'auditory' | 'kinesthetic') {
-  const content = response?.content
-  if (!content) return ''
+  const rawContent = response?.content
+  if (!rawContent) return ''
+  const content = typeof rawContent === 'string' ? tryParseJsonString(rawContent) : rawContent
   if (typeof content === 'string') return content
-  const directText = content.message || content.response_message || content.question || content.answer || content.text
+  const directText = (content && (content as any).message) || (content as any).response_message || (content as any).question || (content as any).answer || (content as any).text
   if (directText) {
     const profile = content.profile || response?.profile_update
     if (!profile) return String(directText)
@@ -387,7 +401,9 @@ function optionalText(value: unknown) {
 }
 
 function extractTutorPayload(response?: AgentResponse | null): TutorPayload | undefined {
-  const baseContent = asObject(response?.content)
+  const rawContent = response?.content
+  const parsed = typeof rawContent === 'string' ? tryParseJsonString(rawContent) : rawContent
+  const baseContent = asObject(parsed)
   const content = asObject(baseContent?.socratic) || asObject(baseContent?.payload) || asObject(baseContent?.data) || baseContent
   if (!content) return undefined
 
@@ -497,11 +513,20 @@ function App() {
 
         if (cancelled) return
         const nextTarget = sessionRes.data.target_concept || targetConcept
-        window.localStorage.setItem('eduhive.target_concept', nextTarget)
-        setTargetConcept(nextTarget)
-        setSelectedConcept(nextTarget)
-        setSelectedNodeId(nextTarget)
-        setResourceConcept(nextTarget)
+        const validTargets = new Set(graphRes.data.nodes.map((n) => n.name))
+        const targetNode = graphRes.data.nodes.find((n) => n.name === nextTarget)
+        const isBeginnerTarget = targetNode && ((targetNode.module && targetNode.module.includes('基础')) || targetNode.difficulty <= 2)
+        const fallbackTarget = (() => {
+          const basics = graphRes.data.nodes.filter((n) => (n.module && n.module.includes('基础')) || n.difficulty <= 2)
+          const sorted = basics.length ? basics.sort((a, b) => a.difficulty - b.difficulty) : graphRes.data.nodes.sort((a, b) => a.difficulty - b.difficulty)
+          return sorted[0]?.name || nextTarget
+        })()
+        const finalTarget = validTargets.has(nextTarget) && isBeginnerTarget ? nextTarget : fallbackTarget
+        window.localStorage.setItem('eduhive.target_concept', finalTarget)
+        setTargetConcept(finalTarget)
+        setSelectedConcept(finalTarget)
+        setSelectedNodeId(finalTarget)
+        setResourceConcept(finalTarget)
         if (sessionRes.data.suggested_path?.length) {
           setPlannedPath(sessionRes.data.suggested_path)
         }
@@ -511,7 +536,7 @@ function App() {
         }
         setGraph(graphRes.data)
         setHealth(healthRes)
-        await behaviorApi.log(sessionRes.data.session_id, 'command_center_opened', nextTarget, {
+        await behaviorApi.log(sessionRes.data.session_id, 'command_center_opened', finalTarget, {
           surface: 'command-center',
         }).catch(() => undefined)
       } catch {
@@ -798,6 +823,7 @@ function App() {
     setResourceConcept(concept)
     setResourcePanelLoading(true)
     setWorkspaceNote(`正在读取「${concept}」的学习资源包...`)
+    let loadedResource: ResourceDetail | null = null
     try {
       const [latestRes, thinkingRes, versionRes] = await Promise.allSettled([
         resourceApi.getLatest(concept),
@@ -806,8 +832,10 @@ function App() {
       ])
       if (latestRes.status === 'fulfilled') {
         const resource = latestRes.value.data.resource
+        loadedResource = resource
         setResourcePackage(resource)
         setResourceStatus(resource ? `已载入「${concept}」资源包` : `「${concept}」暂无已生成资源，请先生成。`)
+        setWorkspaceNote(resource ? `已载入「${concept}」资源包` : `「${concept}」暂无已生成资源，请先生成。`)
       }
       if (thinkingRes.status === 'fulfilled') setThinkingSteps(thinkingRes.value.data.steps || [])
       if (versionRes.status === 'fulfilled') setVersions(versionRes.value.data.versions || [])
@@ -820,6 +848,7 @@ function App() {
     } finally {
       setResourcePanelLoading(false)
     }
+    return loadedResource
   }
 
   const generateResource = async (concept = selectedConcept, source: 'goal' | 'node' | 'resource' = 'node') => {
@@ -862,6 +891,7 @@ function App() {
             }
             setResourcePackage(completedResource)
             setResourceStatus('资源生成与辩论审核完成')
+            setWorkspaceNote(`「${concept}」资源生成与辩论审核完成，可查看讲义、练习与审核记录。`)
           }
         }
       }
@@ -871,10 +901,17 @@ function App() {
       ])
       if (thinkingRes.status === 'fulfilled') setThinkingSteps(thinkingRes.value.data.steps || [])
       if (versionRes.status === 'fulfilled') setVersions(versionRes.value.data.versions || [])
-      await loadResource(concept, 'refresh').catch(() => {
+      const loadedResource = await loadResource(concept, 'refresh').catch(() => {
         if (completedResource) setResourcePackage(completedResource)
+        return completedResource
       })
-      navigateTo('resources', `「${concept}」学习资源已生成，可查看讲义、练习与审核记录。`)
+      const finalResource = loadedResource || completedResource
+      if (finalResource) {
+        navigateTo('resources', `「${concept}」学习资源已生成，可查看讲义、练习与审核记录。`)
+      } else {
+        setResourceStatus(`「${concept}」资源生成未完成，请稍后重试或切换知识点。`)
+        setWorkspaceNote(`「${concept}」资源生成未完成，已展示最新可用资源（如有）。`)
+      }
     } catch {
       setResourceStatus('资源生成流未连接，当前展示本地演示状态')
       setWorkspaceNote('资源生成接口未连接；你仍可调试前端交互和其他接口。')
@@ -898,6 +935,19 @@ function App() {
   const runResourceCode = async (codeText: string) => {
     const res = await codeApi.execute(codeText)
     return res.data
+  }
+
+  const submitResourceFeedback = async (concept: string, data: { rating?: number; confusion_marked?: boolean; error_report?: string }) => {
+    if (!session) throw new Error('会话未创建')
+    const resourceId = resourcePackage?.resource_id || `feedback-${Date.now()}`
+    await resourceApi.submitFeedback({
+      session_id: session.session_id,
+      resource_id: resourceId,
+      concept,
+      rating: data.rating,
+      confusion_marked: data.confusion_marked,
+      error_report: data.error_report,
+    })
   }
 
   const judgeResourceExercise = async (exercise: Record<string, any>, codeText: string) => {
@@ -1111,6 +1161,7 @@ function App() {
                       }).catch(() => undefined)
                     }
                   }}
+                  onSubmitFeedback={(data) => submitResourceFeedback(resourceConcept, data)}
                 />
                 <WorkspaceDock
                   activeNav={activeNav}
@@ -1372,7 +1423,17 @@ function KnowledgePanel({
               onClick={(event) => event.stopPropagation()}
             >
               <p className="font-bold text-amber-300">当前目标：{selectedConcept}</p>
-              <p className="mt-2 text-slate-400">前置依赖：{conceptDetail?.prerequisites?.join('、') || plannedPath.slice(0, -1).join('、') || '等待后端路径'}</p>
+              <p className="mt-2 text-slate-400">
+                前置依赖：
+                {(() => {
+                  const prerequisites = conceptDetail?.prerequisites?.length
+                    ? conceptDetail.prerequisites
+                    : edges.filter((e) => e.target === selectedNode.title).map((e) => e.source)
+                  return prerequisites.length > 0
+                    ? prerequisites.join('、')
+                    : (plannedPath.slice(0, -1).join('、') || '无前置依赖')
+                })()}
+              </p>
               <div className="mt-2 flex items-center gap-2">
                 <span className="text-slate-400">掌握度：</span>
                 <strong className="text-amber-200">{averageMastery}%</strong>
