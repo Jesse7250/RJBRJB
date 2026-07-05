@@ -59,8 +59,6 @@ export interface PathNode {
   difficulty: number
   state: 'mastered' | 'learning' | 'waiting' | 'current'
   icon: ComponentType<{ className?: string }>
-  backendState?: string
-  layoutColor?: string
 }
 
 export type KnowledgeEdge = GraphData['edges'][number]

@@ -286,8 +286,6 @@ function buildBackendPathNodes(layout: GraphLayoutData | null, personalPath: Per
       x: visualNode?.x ?? 50,
       y: visualNode?.y ?? 50,
       state: normalizePathState(pathNode, mastery),
-      backendState: pathNode?.state,
-      layoutColor: node.color,
       icon: iconForConcept(node.name, node.module),
     }
   })
