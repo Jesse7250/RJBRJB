@@ -5,26 +5,34 @@ import {
   BookOpen,
   Brain,
   Braces,
+  ChevronRight,
   Code2,
+  Clock3,
   FlaskConical,
   Hexagon,
+  Home,
   Layers3,
   Loader2,
+  LockKeyhole,
+  Mail,
   MessageSquare,
   Mic,
   Network,
   Play,
   RefreshCw,
   Route,
+  Search,
   Send,
   Server,
   ShieldCheck,
+  Star,
   TerminalSquare,
   UserRound,
 } from 'lucide-react'
 
 import {
   behaviorApi,
+  authApi,
   codeApi,
   evaluationApi,
   graphApi,
@@ -75,6 +83,94 @@ const NAV_ITEMS: Array<{ key: NavKey; label: string; icon: ComponentType<{ class
   { key: 'chat', label: '学习对话', icon: MessageSquare },
   { key: 'code', label: '代码沙箱', icon: Code2 },
   { key: 'progress', label: '掌握进度', icon: BarChart3 },
+]
+
+type CourseCard = {
+  id: string
+  title: string
+  category: string
+  level: string
+  teacher: string
+  duration: string
+  status: 'ready' | 'empty'
+  accent: 'teal' | 'orange' | 'blue' | 'green'
+  summary: string
+  tags: string[]
+}
+
+const COURSE_CATALOG: CourseCard[] = [
+  {
+    id: 'python',
+    title: 'Python 文件读写与智能学习路径',
+    category: '程序设计',
+    level: '入门到进阶',
+    teacher: '智学蜂巢教研组',
+    duration: '6 个模块',
+    status: 'ready',
+    accent: 'teal',
+    summary: '基于知识图谱、AI 对话、代码沙箱和掌握度分析的个性化 Python 学习课程。',
+    tags: ['知识图谱', '代码练习', 'AI 辅导'],
+  },
+  {
+    id: 'data-structure',
+    title: '数据结构可视化训练营',
+    category: '计算机基础',
+    level: '进阶',
+    teacher: '算法教研组',
+    duration: '8 个模块',
+    status: 'empty',
+    accent: 'blue',
+    summary: '用动画和案例理解数组、链表、栈、队列、树与图。',
+    tags: ['动画演示', '算法思维', '待开放'],
+  },
+  {
+    id: 'ai-literacy',
+    title: '人工智能通识与提示词实践',
+    category: 'AI 通识',
+    level: '零基础',
+    teacher: 'AI 创新中心',
+    duration: '5 个模块',
+    status: 'empty',
+    accent: 'orange',
+    summary: '从大模型能力边界、提示词方法到学习场景应用，建立 AI 使用素养。',
+    tags: ['大模型', '提示词', '待开放'],
+  },
+  {
+    id: 'english-speaking',
+    title: '英语口语情景对话',
+    category: '语言学习',
+    level: '日常交流',
+    teacher: '语言训练实验室',
+    duration: '12 个场景',
+    status: 'empty',
+    accent: 'green',
+    summary: '围绕校园、面试、旅行和学术交流构建口语训练闭环。',
+    tags: ['情景对话', '听说训练', '待开放'],
+  },
+  {
+    id: 'math-modeling',
+    title: '数学建模方法入门',
+    category: '数理基础',
+    level: '竞赛预备',
+    teacher: '建模工作坊',
+    duration: '7 个专题',
+    status: 'empty',
+    accent: 'teal',
+    summary: '覆盖模型假设、数据处理、优化求解和论文表达。',
+    tags: ['建模', '数据分析', '待开放'],
+  },
+  {
+    id: 'web-design',
+    title: '前端交互设计基础',
+    category: '软件工程',
+    level: '实践课',
+    teacher: '交互设计教研组',
+    duration: '9 个项目',
+    status: 'empty',
+    accent: 'blue',
+    summary: '从布局、组件状态到可用性设计，完成一个真实 Web 应用。',
+    tags: ['React', '交互设计', '待开放'],
+  },
 ]
 
 const FALLBACK_TARGET_CONCEPT = '变量与赋值'
@@ -481,6 +577,17 @@ function extractProfileFromResponse(response?: AgentResponse | null) {
 }
 
 function App() {
+  const [courseMode, setCourseMode] = useState<'portal' | 'python' | 'empty'>(() => {
+    if (typeof window === 'undefined') return 'portal'
+    if (window.location.hash.startsWith('#/course/python')) return 'python'
+    if (window.location.hash.startsWith('#/course/')) return 'empty'
+    return 'portal'
+  })
+  const [selectedCourseId, setSelectedCourseId] = useState(() => {
+    if (typeof window === 'undefined') return 'python'
+    const match = window.location.hash.match(/^#\/course\/([^/]+)/)
+    return match?.[1] || 'python'
+  })
   const [activeNav, setActiveNav] = useState<NavKey>('graph')
   const [session, setSession] = useState<SessionResponse | null>(null)
   const [stats, setStats] = useState<SessionStats | null>(null)
@@ -520,11 +627,45 @@ function App() {
   const [codeLoading, setCodeLoading] = useState(false)
   const [resourceStatus, setResourceStatus] = useState('资源生成接口待命')
   const [resourceLoading, setResourceLoading] = useState(false)
+  const [authUser, setAuthUser] = useState(() => {
+    if (typeof window === 'undefined') return ''
+    return window.localStorage.getItem('eduhive.username') ?? ''
+  })
+  const [loginUsername, setLoginUsername] = useState(() => {
+    if (typeof window === 'undefined') return ''
+    return window.localStorage.getItem('eduhive.username') ?? ''
+  })
+  const [loginPassword, setLoginPassword] = useState('')
+  const [loginMode, setLoginMode] = useState<'login' | 'register'>('login')
+  const [authLoading, setAuthLoading] = useState(false)
+  const [loginStatus, setLoginStatus] = useState(() => {
+    if (typeof window === 'undefined') return '请使用后端账号登录。'
+    const savedUser = window.localStorage.getItem('eduhive.username')
+    return savedUser ? `已登录：${savedUser}` : '请使用后端账号登录。'
+  })
 
   useEffect(() => {
     const syncRoute = () => {
-      const key = window.location.hash.replace('#/', '') as NavKey
+      const hash = window.location.hash || '#/portal'
+      if (hash === '#/portal' || hash === '#/' || hash === '') {
+        setCourseMode('portal')
+        return
+      }
+
+      const courseMatch = hash.match(/^#\/course\/([^/]+)(?:\/([^?]+))?/)
+      if (courseMatch) {
+        const courseId = courseMatch[1]
+        const navKey = courseMatch[2] as NavKey | undefined
+        setSelectedCourseId(courseId)
+        setCourseMode(courseId === 'python' ? 'python' : 'empty')
+        if (navKey && NAV_ITEMS.some((item) => item.key === navKey)) setActiveNav(navKey)
+        return
+      }
+
+      const key = hash.replace('#/', '') as NavKey
       if (NAV_ITEMS.some((item) => item.key === key)) {
+        setCourseMode('python')
+        setSelectedCourseId('python')
         setActiveNav(key)
       }
     }
@@ -535,15 +676,89 @@ function App() {
 
   const navigateTo = (nav: NavKey, note?: string) => {
     const wasGraph = activeNav === 'graph'
+    setCourseMode('python')
+    setSelectedCourseId('python')
     setActiveNav(nav)
     if (nav === 'graph') {
       setShowGraphDetail(true)
       if (!wasGraph) setGraphFocusNonce((value) => value + 1)
     }
-    if (window.location.hash !== `#/${nav}`) {
-      window.location.hash = `/${nav}`
+    if (window.location.hash !== `#/course/python/${nav}`) {
+      window.location.hash = `/course/python/${nav}`
     }
     setWorkspaceNote(note ?? `已切换到「${NAV_ITEMS.find((item) => item.key === nav)?.label ?? '工作台'}」。`)
+  }
+
+  const openPortal = () => {
+    setCourseMode('portal')
+    window.location.hash = '/portal'
+  }
+
+  const openCourse = (course: CourseCard) => {
+    setSelectedCourseId(course.id)
+    if (course.status === 'ready') {
+      setCourseMode('python')
+      setActiveNav('graph')
+      setShowGraphDetail(true)
+      setGraphFocusNonce((value) => value + 1)
+      window.location.hash = '/course/python/graph'
+      setWorkspaceNote('已进入 Python 课程，建议先查看知识图谱并规划学习路径。')
+      return
+    }
+
+    setCourseMode('empty')
+    window.location.hash = `/course/${course.id}`
+  }
+
+  const submitPortalAuth = async (continueCourse?: CourseCard) => {
+    if (authUser) {
+      setLoginStatus(`已登录：${authUser}`)
+      if (continueCourse) openCourse(continueCourse)
+      return
+    }
+
+    const username = loginUsername.trim()
+    if (!username || !loginPassword.trim()) {
+      setLoginStatus('请输入账号和密码。')
+      return
+    }
+
+    setAuthLoading(true)
+    setLoginStatus(loginMode === 'register' ? '正在注册账号...' : '正在登录...')
+    try {
+      const response = loginMode === 'register'
+        ? await authApi.register(username, loginPassword)
+        : await authApi.login(username, loginPassword)
+      const { access_token, username: returnedUsername } = response.data
+      window.localStorage.setItem('eduhive.auth_token', access_token)
+      window.localStorage.setItem('eduhive.username', returnedUsername || username)
+      setAuthUser(returnedUsername || username)
+      setLoginUsername(returnedUsername || username)
+      setLoginPassword('')
+      setLoginStatus(loginMode === 'register' ? '注册成功，已自动登录。' : '登录成功。')
+      if (continueCourse) openCourse(continueCourse)
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail
+      setLoginStatus(typeof detail === 'string' ? detail : '登录接口暂不可用，请先启动后端服务或检查账号密码。')
+    } finally {
+      setAuthLoading(false)
+    }
+  }
+
+  const logoutPortal = async () => {
+    setAuthLoading(true)
+    try {
+      if (window.localStorage.getItem('eduhive.auth_token')) await authApi.logout()
+    } catch {
+      // 本地退出优先，后端 token 黑名单失败时不阻断用户操作。
+    } finally {
+      window.localStorage.removeItem('eduhive.auth_token')
+      window.localStorage.removeItem('eduhive.username')
+      setAuthUser('')
+      setLoginPassword('')
+      setLoginStatus('已退出登录。')
+      setAuthLoading(false)
+    }
   }
 
   useEffect(() => {
@@ -1130,11 +1345,41 @@ function App() {
     }
   }
 
+  const selectedCourse = COURSE_CATALOG.find((course) => course.id === selectedCourseId) ?? COURSE_CATALOG[0]
+
+  if (courseMode === 'portal') {
+    return (
+      <CoursePortal
+        courses={COURSE_CATALOG}
+        onOpenCourse={openCourse}
+        authUser={authUser}
+        loginUsername={loginUsername}
+        loginPassword={loginPassword}
+        loginMode={loginMode}
+        loginStatus={loginStatus}
+        authLoading={authLoading}
+        onUsernameChange={setLoginUsername}
+        onPasswordChange={setLoginPassword}
+        onLoginModeChange={setLoginMode}
+        onSubmitAuth={submitPortalAuth}
+        onLogout={logoutPortal}
+      />
+    )
+  }
+
+  if (courseMode === 'empty') {
+    return <EmptyCoursePage course={selectedCourse} onBack={openPortal} />
+  }
+
   return (
     <div className={cn('command-shell min-h-screen text-slate-100', `style-mode-${styleMode}`)}>
       <HexBackdrop />
       <aside className="command-sidebar">
         <BrandBlock />
+        <button type="button" onClick={openPortal} className="course-back-link">
+          <Home className="h-4 w-4" />
+          课程广场
+        </button>
         <nav className="mt-10 space-y-3">
           {NAV_ITEMS.map((item) => (
             <button
@@ -1165,6 +1410,8 @@ function App() {
             onGenerateResource={() => generateResource(learningGoalConcept, 'goal')}
             resourceLoading={resourceLoading}
           />
+
+          <CourseStudyHeader course={COURSE_CATALOG[0]} activeNav={activeNav} onBack={openPortal} onNavigate={navigateTo} />
 
           <section className="module-page flex-1">
             {activeNav === 'profile' && (
@@ -1296,6 +1543,17 @@ function App() {
                     setCodeVariables(SAMPLE_VARIABLES)
                   }}
                 />
+                <WorkspaceDock
+                  activeNav={activeNav}
+                  selectedConcept={selectedConcept}
+                  styleMode={styleMode}
+                  workspaceNote={workspaceNote}
+                  thinkingSteps={thinkingSteps}
+                  versions={versions}
+                  onStyleChange={changeStyleMode}
+                  onAnalyze={analyzeMastery}
+                  onPlanPath={planPath}
+                />
               </div>
             )}
 
@@ -1328,6 +1586,264 @@ function App() {
           </section>
         </div>
       </main>
+    </div>
+  )
+}
+
+type CoursePortalProps = {
+  courses: CourseCard[]
+  onOpenCourse: (course: CourseCard) => void
+  authUser: string
+  loginUsername: string
+  loginPassword: string
+  loginMode: 'login' | 'register'
+  loginStatus: string
+  authLoading: boolean
+  onUsernameChange: (value: string) => void
+  onPasswordChange: (value: string) => void
+  onLoginModeChange: (value: 'login' | 'register') => void
+  onSubmitAuth: (continueCourse?: CourseCard) => void
+  onLogout: () => void
+}
+
+function CoursePortal({
+  courses,
+  onOpenCourse,
+  authUser,
+  loginUsername,
+  loginPassword,
+  loginMode,
+  loginStatus,
+  authLoading,
+  onUsernameChange,
+  onPasswordChange,
+  onLoginModeChange,
+  onSubmitAuth,
+  onLogout,
+}: CoursePortalProps) {
+  const featured = courses[0]
+  const categories = ['全部课程', ...Array.from(new Set(courses.map((course) => course.category)))]
+  const [activeCategory, setActiveCategory] = useState('全部课程')
+  const [courseQuery, setCourseQuery] = useState('')
+  const [loginCardPulse, setLoginCardPulse] = useState(false)
+  const loginCardRef = useRef<HTMLFormElement | null>(null)
+  const coursesRef = useRef<HTMLElement | null>(null)
+  const filteredCourses = useMemo(() => {
+    const keyword = courseQuery.trim().toLowerCase()
+    return courses.filter((course) => {
+      const matchesCategory = activeCategory === '全部课程' || course.category === activeCategory
+      const searchPool = [course.title, course.category, course.level, course.teacher, course.summary, ...course.tags]
+        .join(' ')
+        .toLowerCase()
+      return matchesCategory && (!keyword || searchPool.includes(keyword))
+    })
+  }, [activeCategory, courseQuery, courses])
+
+  const focusLoginCard = () => {
+    loginCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    setLoginCardPulse(true)
+    window.setTimeout(() => setLoginCardPulse(false), 900)
+    if (!authUser) {
+      window.setTimeout(() => {
+        loginCardRef.current?.querySelector<HTMLInputElement>('input[name="portal-username"]')?.focus()
+      }, 280)
+    }
+  }
+
+  const showCourseResults = () => {
+    coursesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  return (
+    <div className="course-portal min-h-screen">
+      <header className="portal-nav">
+        <BrandBlock />
+        <nav>
+          {categories.map((category) => (
+            <button
+              key={category}
+              type="button"
+              className={activeCategory === category ? 'active' : ''}
+              aria-pressed={activeCategory === category}
+              onClick={() => {
+                setActiveCategory(category)
+                coursesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+              }}
+            >
+              {category}
+            </button>
+          ))}
+        </nav>
+        <div className="portal-login">
+          <button type="button" className="portal-login-status" onClick={focusLoginCard}>
+            <Mail className="h-4 w-4" /> {authUser || '未登录'}
+          </button>
+          <button type="button" onClick={authUser ? onLogout : focusLoginCard} disabled={authLoading}>
+            <LockKeyhole className="h-4 w-4" /> {authUser ? '退出' : '登录'}
+          </button>
+        </div>
+      </header>
+
+      <main className="portal-main">
+        <section className="portal-hero">
+          <div className="portal-hero-copy">
+            <p className="portal-kicker">AI 驱动的个性化课程空间</p>
+            <h1><span>选择课程</span><span>进入你的智学蜂巢</span></h1>
+            <span>从目标出发，系统会结合你的学习记录与掌握情况，推荐更适合当前阶段的课程内容。</span>
+            <div className="portal-search">
+              <Search className="h-5 w-5" />
+              <input
+                value={courseQuery}
+                onChange={(event) => setCourseQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') showCourseResults()
+                }}
+                placeholder="搜索 Python 文件读写、数据结构、AI 通识"
+                aria-label="课程搜索"
+              />
+              <button type="button" onClick={showCourseResults}>搜索课程</button>
+            </div>
+            <div className="portal-hero-actions">
+              <button type="button" className="portal-primary-action" onClick={() => onOpenCourse(featured)}>
+                进入推荐课程 <ChevronRight className="h-4 w-4" />
+              </button>
+              <button type="button" className="portal-ghost-action" onClick={focusLoginCard}>
+                {authUser ? '查看学习账户' : '登录后同步学习记录'}
+              </button>
+            </div>
+          </div>
+          <form ref={loginCardRef} className={cn('portal-login-card', loginCardPulse && 'is-attention')} onSubmit={(event) => {
+            event.preventDefault()
+            onSubmitAuth(featured)
+          }}>
+            <strong>{authUser ? '学习账户' : loginMode === 'register' ? '创建学习账户' : '登录学习账户'}</strong>
+            {authUser ? (
+              <>
+                <div className="portal-account-panel">
+                  <span>当前账号</span>
+                  <b>{authUser}</b>
+                </div>
+                <button type="button" onClick={() => onOpenCourse(featured)}>继续学习 Python</button>
+                <button type="button" className="portal-secondary-button" onClick={onLogout} disabled={authLoading}>退出登录</button>
+              </>
+            ) : (
+              <>
+                <div className="portal-login-tabs" role="group" aria-label="登录模式">
+                  <button type="button" className={loginMode === 'login' ? 'active' : ''} onClick={() => onLoginModeChange('login')}>登录</button>
+                  <button type="button" className={loginMode === 'register' ? 'active' : ''} onClick={() => onLoginModeChange('register')}>注册</button>
+                </div>
+                <label>
+                  <span>账号</span>
+                  <input name="portal-username" value={loginUsername} onChange={(event) => onUsernameChange(event.target.value)} placeholder="请输入用户名或邮箱" autoComplete="username" />
+                </label>
+                <label>
+                  <span>密码</span>
+                  <input value={loginPassword} onChange={(event) => onPasswordChange(event.target.value)} placeholder="请输入密码" type="password" autoComplete={loginMode === 'register' ? 'new-password' : 'current-password'} />
+                </label>
+                <button type="submit" disabled={authLoading}>
+                  {authLoading ? '处理中...' : loginMode === 'register' ? '注册并继续学习' : '登录并继续学习'}
+                </button>
+              </>
+            )}
+            <p>{loginStatus}</p>
+          </form>
+        </section>
+
+        <section className="portal-section" ref={coursesRef}>
+          <div className="portal-section-title">
+            <div>
+              <p>课程中心</p>
+              <h2>{activeCategory === '全部课程' ? '推荐课程' : activeCategory}</h2>
+            </div>
+            <span>{filteredCourses.length ? `已为你筛选出 ${filteredCourses.length} 门课程。开放课程可直接进入学习，建设中的课程会持续更新。` : '没有找到匹配课程，可以切换分类或修改关键词。'}</span>
+          </div>
+          <div className="course-card-grid">
+            {filteredCourses.map((course) => (
+              <button key={course.id} type="button" onClick={() => onOpenCourse(course)} className={cn('course-card', `course-card-${course.accent}`)}>
+                <div className="course-card-cover">
+                  <BookOpen className="h-7 w-7" />
+                  <span>{course.status === 'ready' ? '已开放' : '建设中'}</span>
+                </div>
+                <div className="course-card-body">
+                  <p>{course.category} · {course.level}</p>
+                  <h3>{course.title}</h3>
+                  <span>{course.summary}</span>
+                  <div className="course-card-meta">
+                    <em><UserRound className="h-3.5 w-3.5" />{course.teacher}</em>
+                    <em><Clock3 className="h-3.5 w-3.5" />{course.duration}</em>
+                  </div>
+                  <div className="course-card-tags">
+                    {course.tags.map((tag) => <i key={tag}>{tag}</i>)}
+                  </div>
+                </div>
+                <strong>{course.status === 'ready' ? '进入课程' : '查看状态'}<ChevronRight className="h-4 w-4" /></strong>
+              </button>
+            ))}
+            {!filteredCourses.length && (
+              <div className="course-empty-result">
+                <Search className="h-6 w-6" />
+                <strong>暂无匹配课程</strong>
+                <span>试试“Python”“AI”或切换到全部课程。</span>
+              </div>
+            )}
+          </div>
+        </section>
+      </main>
+    </div>
+  )
+}
+
+function EmptyCoursePage({ course, onBack }: { course: CourseCard; onBack: () => void }) {
+  return (
+    <div className="empty-course-page min-h-screen">
+      <header className="portal-nav">
+        <BrandBlock />
+        <button type="button" onClick={onBack} className="portal-back-button"><Home className="h-4 w-4" /> 返回课程广场</button>
+      </header>
+      <main className="empty-course-main">
+        <div className={cn('empty-course-card', `course-card-${course.accent}`)}>
+          <div className="course-card-cover">
+            <BookOpen className="h-8 w-8" />
+            <span>建设中</span>
+          </div>
+          <p>{course.category} · {course.level}</p>
+          <h1>{course.title}</h1>
+          <span>{course.summary}</span>
+          <strong>暂无课程内容哦~</strong>
+          <button type="button" onClick={onBack}>去选择已开放课程</button>
+        </div>
+      </main>
+    </div>
+  )
+}
+
+function CourseStudyHeader({
+  course,
+  activeNav,
+  onBack,
+  onNavigate,
+}: {
+  course: CourseCard
+  activeNav: NavKey
+  onBack: () => void
+  onNavigate: (nav: NavKey) => void
+}) {
+  return (
+    <div className="course-study-header">
+      <div>
+        <button type="button" onClick={onBack}><Home className="h-4 w-4" /> 课程广场</button>
+        <p>{course.category} · {course.level}</p>
+        <h2>{course.title}</h2>
+      </div>
+      <nav>
+        {NAV_ITEMS.map((item) => (
+          <button key={item.key} type="button" onClick={() => onNavigate(item.key)} className={cn(activeNav === item.key && 'active')}>
+            <item.icon className="h-4 w-4" />
+            {item.label}
+          </button>
+        ))}
+      </nav>
+      <span><Star className="h-4 w-4" /> 当前推荐：先看知识图谱，再生成学习资源</span>
     </div>
   )
 }
@@ -1605,12 +2121,13 @@ function ChatCommand({
   messages: ChatMessage[]
   loading: boolean
   targetConcept: string
-  onSend: () => void
+  onSend: (messageOverride?: string) => void
   onContinueTutor: () => void
 }) {
   const messagesRef = useRef<HTMLDivElement | null>(null)
   const voiceRecognitionRef = useRef<any | null>(null)
   const [voiceStatus, setVoiceStatus] = useState<'idle' | 'listening' | 'unsupported'>('idle')
+  const defaultPrompt = `我想学习 ${targetConcept}`
 
   useEffect(() => {
     messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight, behavior: 'smooth' })
@@ -1622,6 +2139,19 @@ function ChatCommand({
       voiceRecognitionRef.current = null
     }
   }, [])
+
+  const handleInputFocus = () => {
+    if (input.trim() === defaultPrompt) setInput('')
+  }
+
+  const handleInputBlur = () => {
+    if (!input.trim()) setInput(defaultPrompt)
+  }
+
+  const handleSend = () => {
+    if (loading) return
+    onSend(input.trim() || defaultPrompt)
+  }
 
   const toggleVoiceInput = () => {
     if (voiceStatus === 'listening' && voiceRecognitionRef.current) {
@@ -1653,7 +2183,8 @@ function ChatCommand({
     recognition.onresult = (event: any) => {
       const transcript = String(event.results?.[0]?.[0]?.transcript || '').trim()
       if (transcript) {
-        setInput(input.trim() ? `${input.trim()} ${transcript}` : transcript)
+        const current = input.trim() === defaultPrompt ? '' : input.trim()
+        setInput(current ? `${current} ${transcript}` : transcript)
       }
     }
     voiceRecognitionRef.current = recognition
@@ -1730,11 +2261,13 @@ function ChatCommand({
           <div className="chat-input-frame">
             <input
               value={input}
+              onFocus={handleInputFocus}
+              onBlur={handleInputBlur}
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === 'Enter' && !event.nativeEvent.isComposing) onSend()
+                if (event.key === 'Enter' && !event.nativeEvent.isComposing) handleSend()
               }}
-              className="min-w-0 flex-1 bg-transparent px-3 text-sm text-slate-100 outline-none placeholder:text-slate-600"
+              className="min-w-0 flex-1 bg-transparent px-3 text-sm text-slate-900 outline-none placeholder:text-slate-400"
               placeholder="输入你的问题，例如：为什么 open 要写 encoding？"
             />
             <button
@@ -1746,7 +2279,7 @@ function ChatCommand({
             >
               <Mic className="h-4 w-4" />
             </button>
-            <button type="button" onClick={() => onSend()} disabled={loading || !input.trim()} className="send-button">
+            <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={handleSend} disabled={loading} className="send-button">
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4 fill-current" />}
             </button>
           </div>

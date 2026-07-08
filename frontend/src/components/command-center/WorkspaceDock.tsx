@@ -28,6 +28,7 @@ export function WorkspaceDock({
     auditory: '听觉型：突出对话引导和口语化讲解节奏。',
     kinesthetic: '动觉型：强调代码练习、即时运行和操作反馈。',
   }
+
   const titleByNav: Record<NavKey, string> = {
     profile: '学习画像工作区',
     graph: '路径规划工作区',
@@ -36,6 +37,12 @@ export function WorkspaceDock({
     code: '代码沙箱工作区',
     progress: '评估分析工作区',
   }
+
+  const fallbackSteps: ThinkingStep[] = [
+    { agent: 'Navigator', stage: 'path', message: '选择知识节点后可规划路径。' },
+    { agent: 'Builder', stage: 'resource', message: '顶部或节点详情可生成当前知识点资源。' },
+    { agent: 'Evaluator', stage: 'analysis', message: '热力图点击会记录行为并联动评估。' },
+  ]
 
   return (
     <div className="workspace-dock">
@@ -57,11 +64,7 @@ export function WorkspaceDock({
         <button onClick={onAnalyze}>分析掌握度</button>
       </div>
       <div className="dock-feed">
-        {(thinkingSteps.length > 0 ? thinkingSteps : [
-          { agent: 'Navigator', stage: 'path', message: '选择知识节点后可规划路径。' },
-          { agent: 'Builder', stage: 'resource', message: '顶部或节点详情可生成当前知识点资源。' },
-          { agent: 'Evaluator', stage: 'analysis', message: '热力图点击会记录行为并联动评估。' },
-        ]).slice(0, 3).map((step, index) => (
+        {(thinkingSteps.length > 0 ? thinkingSteps : fallbackSteps).slice(0, 3).map((step, index) => (
           <p key={`${step.agent}-${index}`}>
             <strong>{step.agent}</strong>
             <span>{step.message}</span>

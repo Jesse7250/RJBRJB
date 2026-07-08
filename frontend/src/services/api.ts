@@ -23,6 +23,18 @@ const api = axios.create({
   },
 })
 
+api.interceptors.request.use((config) => {
+  const token = typeof window === 'undefined' ? '' : window.localStorage.getItem('eduhive.auth_token')
+  if (token) config.headers.Authorization = `Bearer ${token}`
+  return config
+})
+
+export interface AuthTokenResponse {
+  access_token: string
+  token_type: string
+  username: string
+}
+
 export interface SessionResponse {
   session_id: string
   profile: {
@@ -140,6 +152,22 @@ export const sessionApi = {
 
   chatStream: (sessionId: string, message: string, messageType: string = 'text') =>
     fetch(`/api/sessions/${sessionId}/chat-stream?message=${encodeURIComponent(message)}&message_type=${messageType}`),
+}
+
+export const authApi = {
+  login: (username: string, password: string) => {
+    const form = new URLSearchParams()
+    form.set('username', username)
+    form.set('password', password)
+    return api.post<AuthTokenResponse>('/auth/login', form, {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    })
+  },
+
+  register: (username: string, password: string) =>
+    api.post<AuthTokenResponse>('/auth/register', { username, password }),
+
+  logout: () => api.post('/auth/logout'),
 }
 
 // 知识图谱相关接口：全图、布局、个人路径、概念详情
