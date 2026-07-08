@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils'
-import type { ResourceVersion, ThinkingStep } from '@/services/api'
+import type { LearningEvent, LearningPlanResponse, ResourceVersion, ThinkingStep } from '@/services/api'
 import type { NavKey } from './types'
 
 export function WorkspaceDock({
@@ -9,6 +9,8 @@ export function WorkspaceDock({
   workspaceNote,
   thinkingSteps,
   versions,
+  learningPlan,
+  learningEvents,
   onStyleChange,
   onAnalyze,
   onPlanPath,
@@ -19,6 +21,8 @@ export function WorkspaceDock({
   workspaceNote: string
   thinkingSteps: ThinkingStep[]
   versions: ResourceVersion[]
+  learningPlan?: LearningPlanResponse | null
+  learningEvents?: LearningEvent[]
   onStyleChange: (mode: 'visual' | 'auditory' | 'kinesthetic') => void
   onAnalyze: () => void
   onPlanPath: () => void
@@ -76,6 +80,24 @@ export function WorkspaceDock({
             <span>已读取 {versions.length} 个资源版本演进记录。</span>
           </p>
         )}
+        {learningPlan?.plan?.length ? (
+          <p>
+            <strong>Plan</strong>
+            <span>
+              后端规划 {learningPlan.plan.length} 个节点，预计 {learningPlan.total_minutes} 分钟：
+              {learningPlan.plan.slice(0, 3).map((item) => item.concept).join(' → ')}
+            </span>
+          </p>
+        ) : null}
+        {learningEvents?.[0] ? (
+          <p>
+            <strong>Event</strong>
+            <span>
+              最近行为：{learningEvents[0].event_type}
+              {learningEvents[0].concept ? ` · ${learningEvents[0].concept}` : ''}
+            </span>
+          </p>
+        ) : null}
       </div>
     </div>
   )

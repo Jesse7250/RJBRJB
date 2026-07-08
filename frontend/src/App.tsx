@@ -41,7 +41,11 @@ import {
   type AgentResponse,
   type CodeVariable,
   type GraphData,
+  type LearningEvent,
+  type LearningPlanResponse,
   type ResourceDetail,
+  type ResourceEvolutionResponse,
+  type ResourceFeedbackStats,
   type ResourceVersion,
   type SessionResponse,
   type ThinkingStep,
@@ -101,14 +105,14 @@ type CourseCard = {
 const COURSE_CATALOG: CourseCard[] = [
   {
     id: 'python',
-    title: 'Python 文件读写与智能学习路径',
+    title: 'Python 程序设计基础',
     category: '程序设计',
     level: '入门到进阶',
     teacher: '智学蜂巢教研组',
     duration: '6 个模块',
     status: 'ready',
     accent: 'teal',
-    summary: '基于知识图谱、AI 对话、代码沙箱和掌握度分析的个性化 Python 学习课程。',
+    summary: '从基础语法、控制流到文件操作，配合练习、代码运行和个性化辅导完成入门训练。',
     tags: ['知识图谱', '代码练习', 'AI 辅导'],
   },
   {
@@ -393,11 +397,8 @@ function edgePath(source: PathNode, target: PathNode) {
   return `M${source.x} ${source.y} C${midX} ${source.y + lift}, ${midX} ${target.y - lift}, ${target.x} ${target.y}`
 }
 
-function isPathEdge(edge: KnowledgeEdge, plannedPath: string[]) {
-  return plannedPath.some((name, index) => {
-    const next = plannedPath[index + 1]
-    return next && edge.source === name && edge.target === next
-  })
+function buildPathEdgeKey(source: string, target: string) {
+  return `${source}->${target}`
 }
 
 function inferCodeVariables(code: string, output: string): CodeVariable[] {
@@ -612,6 +613,10 @@ function App() {
   const [workspaceNote, setWorkspaceNote] = useState('点击知识节点、Agent 或工具按钮开始联动。')
   const [thinkingSteps, setThinkingSteps] = useState<ThinkingStep[]>([])
   const [versions, setVersions] = useState<ResourceVersion[]>([])
+  const [learningPlan, setLearningPlan] = useState<LearningPlanResponse | null>(null)
+  const [learningEvents, setLearningEvents] = useState<LearningEvent[]>([])
+  const [resourceEvolution, setResourceEvolution] = useState<ResourceEvolutionResponse | null>(null)
+  const [feedbackStats, setFeedbackStats] = useState<ResourceFeedbackStats | null>(null)
   const [resourcePackage, setResourcePackage] = useState<ResourceDetail | null>(null)
   const [resourcePanelLoading, setResourcePanelLoading] = useState(false)
   const [conceptDetail, setConceptDetail] = useState<any | null>(null)
@@ -832,13 +837,31 @@ function App() {
     const sessionId = session.session_id
 
     async function loadLearningSignals() {
-      const [statsRes, heatmapRes] = await Promise.allSettled([
+      const [statsRes, heatmapRes, profileRes, planRes, eventsRes] = await Promise.allSettled([
         sessionApi.getStats(sessionId),
         evaluationApi.getHeatmap(sessionId),
+        sessionApi.getProfile(sessionId),
+        sessionApi.getLearningPlan(sessionId),
+        sessionApi.getEvents(sessionId, 8),
       ])
 
       if (statsRes.status === 'fulfilled') setStats(statsRes.value.data)
       if (heatmapRes.status === 'fulfilled') setHeatmap(heatmapRes.value.data.data || [])
+      if (profileRes.status === 'fulfilled' && !profileRes.value.data?.error) {
+        setSession((current) => current && current.session_id === sessionId
+          ? { ...current, profile: { ...current.profile, ...profileRes.value.data } }
+          : current)
+      }
+      if (planRes.status === 'fulfilled') {
+        setLearningPlan(planRes.value.data)
+      } else {
+        setLearningPlan(null)
+      }
+      if (eventsRes.status === 'fulfilled') {
+        setLearningEvents([...(eventsRes.value.data.events || [])].sort((a, b) =>
+          String(b.created_at || '').localeCompare(String(a.created_at || ''))
+        ))
+      }
     }
 
     loadLearningSignals()
@@ -1119,10 +1142,12 @@ function App() {
     setWorkspaceNote(`正在读取「${concept}」的学习资源包...`)
     let loadedResource: ResourceDetail | null = null
     try {
-      const [latestRes, thinkingRes, versionRes] = await Promise.allSettled([
+      const [latestRes, thinkingRes, versionRes, evolutionRes, feedbackStatsRes] = await Promise.allSettled([
         resourceApi.getLatest(concept),
         resourceApi.getThinkingPath(concept),
         resourceApi.getVersions(concept),
+        resourceApi.getEvolution(concept),
+        resourceApi.getFeedbackStats(concept),
       ])
       if (latestRes.status === 'fulfilled') {
         const resource = latestRes.value.data.resource
@@ -1133,12 +1158,16 @@ function App() {
       }
       if (thinkingRes.status === 'fulfilled') setThinkingSteps(thinkingRes.value.data.steps || [])
       if (versionRes.status === 'fulfilled') setVersions(versionRes.value.data.versions || [])
+      if (evolutionRes.status === 'fulfilled') setResourceEvolution(evolutionRes.value.data)
+      if (feedbackStatsRes.status === 'fulfilled') setFeedbackStats(feedbackStatsRes.value.data)
       if (session) {
         behaviorApi.log(session.session_id, 'resource_switched', concept, { surface }).catch(() => undefined)
       }
     } catch {
       setResourceStatus('资源详情接口暂不可用')
       setWorkspaceNote('未能读取资源详情，请确认后端服务已启动。')
+      setResourceEvolution(null)
+      setFeedbackStats(null)
     } finally {
       setResourcePanelLoading(false)
     }
@@ -1242,6 +1271,9 @@ function App() {
       confusion_marked: data.confusion_marked,
       error_report: data.error_report,
     })
+    resourceApi.getFeedbackStats(concept)
+      .then((res) => setFeedbackStats(res.data))
+      .catch(() => undefined)
   }
 
   const judgeResourceExercise = async (exercise: Record<string, any>, codeText: string) => {
@@ -1411,7 +1443,16 @@ function App() {
             resourceLoading={resourceLoading}
           />
 
-          <CourseStudyHeader course={COURSE_CATALOG[0]} activeNav={activeNav} onBack={openPortal} onNavigate={navigateTo} />
+          <CourseStudyHeader
+            course={COURSE_CATALOG[0]}
+            activeNav={activeNav}
+            selectedConcept={selectedConcept}
+            masteredCount={masteredCount}
+            totalConcepts={graphConcepts.size}
+            averageMastery={averageMastery}
+            onBack={openPortal}
+            onNavigate={navigateTo}
+          />
 
           <section className="module-page flex-1">
             {activeNav === 'profile' && (
@@ -1425,6 +1466,8 @@ function App() {
                   workspaceNote={workspaceNote}
                   thinkingSteps={thinkingSteps}
                   versions={versions}
+                  learningPlan={learningPlan}
+                  learningEvents={learningEvents}
                   onStyleChange={changeStyleMode}
                   onAnalyze={analyzeMastery}
                   onPlanPath={planPath}
@@ -1458,6 +1501,8 @@ function App() {
                   workspaceNote={workspaceNote}
                   thinkingSteps={thinkingSteps}
                   versions={versions}
+                  learningPlan={learningPlan}
+                  learningEvents={learningEvents}
                   onStyleChange={changeStyleMode}
                   onAnalyze={analyzeMastery}
                   onPlanPath={planPath}
@@ -1473,6 +1518,8 @@ function App() {
                   resourceStatus={resourceStatus}
                   loading={resourcePanelLoading}
                   versions={versions}
+                  evolution={resourceEvolution}
+                  feedbackStats={feedbackStats}
                   thinkingSteps={thinkingSteps}
                   onGenerateResource={() => generateResource(resourceConcept, 'resource')}
                   onRefresh={() => loadResource(resourceConcept, 'refresh')}
@@ -1496,6 +1543,8 @@ function App() {
                   workspaceNote={workspaceNote}
                   thinkingSteps={thinkingSteps}
                   versions={versions}
+                  learningPlan={learningPlan}
+                  learningEvents={learningEvents}
                   onStyleChange={changeStyleMode}
                   onAnalyze={analyzeMastery}
                   onPlanPath={planPath}
@@ -1521,6 +1570,8 @@ function App() {
                   workspaceNote={workspaceNote}
                   thinkingSteps={thinkingSteps}
                   versions={versions}
+                  learningPlan={learningPlan}
+                  learningEvents={learningEvents}
                   onStyleChange={changeStyleMode}
                   onAnalyze={analyzeMastery}
                   onPlanPath={planPath}
@@ -1550,6 +1601,8 @@ function App() {
                   workspaceNote={workspaceNote}
                   thinkingSteps={thinkingSteps}
                   versions={versions}
+                  learningPlan={learningPlan}
+                  learningEvents={learningEvents}
                   onStyleChange={changeStyleMode}
                   onAnalyze={analyzeMastery}
                   onPlanPath={planPath}
@@ -1577,6 +1630,8 @@ function App() {
                   workspaceNote={workspaceNote}
                   thinkingSteps={thinkingSteps}
                   versions={versions}
+                  learningPlan={learningPlan}
+                  learningEvents={learningEvents}
                   onStyleChange={changeStyleMode}
                   onAnalyze={analyzeMastery}
                   onPlanPath={planPath}
@@ -1714,7 +1769,7 @@ function CoursePortal({
           </div>
           <form ref={loginCardRef} className={cn('portal-login-card', loginCardPulse && 'is-attention')} onSubmit={(event) => {
             event.preventDefault()
-            onSubmitAuth(featured)
+            onSubmitAuth()
           }}>
             <strong>{authUser ? '学习账户' : loginMode === 'register' ? '创建学习账户' : '登录学习账户'}</strong>
             {authUser ? (
@@ -1723,7 +1778,7 @@ function CoursePortal({
                   <span>当前账号</span>
                   <b>{authUser}</b>
                 </div>
-                <button type="button" onClick={() => onOpenCourse(featured)}>继续学习 Python</button>
+                <button type="button" onClick={() => onOpenCourse(featured)}>继续学习</button>
                 <button type="button" className="portal-secondary-button" onClick={onLogout} disabled={authLoading}>退出登录</button>
               </>
             ) : (
@@ -1741,7 +1796,7 @@ function CoursePortal({
                   <input value={loginPassword} onChange={(event) => onPasswordChange(event.target.value)} placeholder="请输入密码" type="password" autoComplete={loginMode === 'register' ? 'new-password' : 'current-password'} />
                 </label>
                 <button type="submit" disabled={authLoading}>
-                  {authLoading ? '处理中...' : loginMode === 'register' ? '注册并继续学习' : '登录并继续学习'}
+                  {authLoading ? '处理中...' : loginMode === 'register' ? '注册' : '登录'}
                 </button>
               </>
             )}
@@ -1820,30 +1875,94 @@ function EmptyCoursePage({ course, onBack }: { course: CourseCard; onBack: () =>
 function CourseStudyHeader({
   course,
   activeNav,
+  selectedConcept,
+  masteredCount,
+  totalConcepts,
+  averageMastery,
   onBack,
   onNavigate,
 }: {
   course: CourseCard
   activeNav: NavKey
+  selectedConcept: string
+  masteredCount: number
+  totalConcepts: number
+  averageMastery: number
   onBack: () => void
   onNavigate: (nav: NavKey) => void
 }) {
+  const activeItem = NAV_ITEMS.find((item) => item.key === activeNav) ?? NAV_ITEMS[0]
+  const moduleDescriptions: Record<NavKey, string> = {
+    profile: '查看画像与协作状态',
+    graph: '规划知识路径',
+    resources: '学习讲义与练习',
+    chat: '向 AI 助教提问',
+    code: '运行 Python 代码',
+    progress: '复盘掌握度变化',
+  }
+  const statCards = [
+    { label: '学习模块', value: NAV_ITEMS.length, unit: '个', icon: Layers3 },
+    { label: '知识节点', value: totalConcepts || '待载入', unit: totalConcepts ? '个' : '', icon: Network },
+    { label: '已掌握', value: masteredCount, unit: '个', icon: Brain },
+    { label: '平均掌握', value: `${averageMastery}%`, unit: '', icon: BarChart3 },
+  ]
+
   return (
     <div className="course-study-header">
-      <div>
-        <button type="button" onClick={onBack}><Home className="h-4 w-4" /> 课程广场</button>
+      <div className="course-cover-main">
+        <button type="button" onClick={onBack} className="course-back-button"><Home className="h-4 w-4" /> 课程广场</button>
         <p>{course.category} · {course.level}</p>
-        <h2>{course.title}</h2>
+        <div className="course-cover-title-row">
+          <h2>{course.title}</h2>
+          <em>智慧课程</em>
+        </div>
+        <span>{course.summary}</span>
+        <div className="course-cover-tags">
+          <strong>{course.teacher}</strong>
+          <i>{course.duration}</i>
+          {course.tags.map((tag) => <i key={tag}>{tag}</i>)}
+        </div>
       </div>
-      <nav>
+
+      <div className="course-cover-system">
+        <div className="course-system-title">
+          <span>课程学习面板</span>
+          <strong>当前模块和进度会随你的学习记录更新</strong>
+        </div>
+        <div className="course-current-goal">
+          <activeItem.icon className="h-5 w-5" />
+          <div>
+            <span>当前学习空间</span>
+            <strong>{activeItem.label}</strong>
+          </div>
+        </div>
+        <div className="course-goal-pill">
+          <Route className="h-4 w-4" />
+          <span>目标：{selectedConcept}</span>
+        </div>
+        <div className="course-stat-stack">
+          {statCards.map((item) => (
+            <div key={item.label}>
+              <item.icon className="h-4 w-4" />
+              <span>{item.label}</span>
+              <strong>{item.value}<small>{item.unit}</small></strong>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <nav className="course-cover-tabs">
         {NAV_ITEMS.map((item) => (
           <button key={item.key} type="button" onClick={() => onNavigate(item.key)} className={cn(activeNav === item.key && 'active')}>
             <item.icon className="h-4 w-4" />
-            {item.label}
+            <span>
+              <strong>{item.label}</strong>
+              <small>{moduleDescriptions[item.key]}</small>
+            </span>
           </button>
         ))}
       </nav>
-      <span><Star className="h-4 w-4" /> 当前推荐：先看知识图谱，再生成学习资源</span>
+      <span className="course-study-tip"><Star className="h-4 w-4" /> 当前正在学习「{selectedConcept}」，你可以在{activeItem.label}中继续推进。</span>
     </div>
   )
 }
@@ -1908,16 +2027,31 @@ function KnowledgePanel({
   const canvasRef = useRef<HTMLDivElement | null>(null)
   const mapX = useMotionValue(0)
   const [canvasSize, setCanvasSize] = useState({ width: 920, height: 355 })
-  const nodeByTitle = new Map(nodes.map((node) => [node.title, node]))
-  const renderedEdges = edges
+  const plannedNodeSet = useMemo(() => new Set(plannedPath), [plannedPath])
+  const plannedEdgeSet = useMemo(() => {
+    const edgeSet = new Set<string>()
+    plannedPath.forEach((name, index) => {
+      const next = plannedPath[index + 1]
+      if (next) edgeSet.add(buildPathEdgeKey(name, next))
+    })
+    return edgeSet
+  }, [plannedPath])
+  const nodeByTitle = useMemo(() => new Map(nodes.map((node) => [node.title, node])), [nodes])
+  const renderedEdges = useMemo(() => edges
     .map((edge) => {
       const source = nodeByTitle.get(edge.source)
       const target = nodeByTitle.get(edge.target)
       if (!source || !target) return null
-      return { edge, source, target, d: edgePath(source, target), active: isPathEdge(edge, plannedPath) }
+      return {
+        edge,
+        source,
+        target,
+        d: edgePath(source, target),
+        active: plannedEdgeSet.has(buildPathEdgeKey(edge.source, edge.target)),
+      }
     })
-    .filter((edge): edge is NonNullable<typeof edge> => Boolean(edge))
-  const activeEdges = renderedEdges.filter((item) => item.active)
+    .filter((edge): edge is NonNullable<typeof edge> => Boolean(edge)), [edges, nodeByTitle, plannedEdgeSet])
+  const activeEdges = useMemo(() => renderedEdges.filter((item) => item.active), [renderedEdges])
   const mapPixelWidth = Math.max(1900, nodes.length * 260)
   const dragLeft = -Math.max(820, mapPixelWidth - 920)
   const nodeX = selectedNode ? (selectedNode.x / 100) * mapPixelWidth : 0
@@ -2002,7 +2136,7 @@ function KnowledgePanel({
               index={index}
               selected={node.id === selectedNodeId || node.title === selectedConcept}
               detailOpen={showDetail && (node.id === selectedNodeId || node.title === selectedConcept)}
-              onPlannedPath={plannedPath.includes(node.title)}
+              onPlannedPath={plannedNodeSet.has(node.title)}
               known={graphConcepts.size === 0 || graphConcepts.has(node.title)}
               onSelect={() => onNodeSelect(node)}
             />
@@ -2079,6 +2213,8 @@ function GraphNode({
   onPlannedPath: boolean
   onSelect: () => void
 }) {
+  const waveCount = selected ? 3 : onPlannedPath ? 2 : 0
+
   return (
     <motion.button
       type="button"
@@ -2089,11 +2225,9 @@ function GraphNode({
       animate={{ opacity: 1, scale: 1 }}
       transition={{ delay: index * 0.05, duration: 0.35 }}
     >
-      {(selected || onPlannedPath) && (
+      {waveCount > 0 && (
         <div className="node-wave-field" aria-hidden="true">
-          <span />
-          <span />
-          <span />
+          {Array.from({ length: waveCount }).map((_, index) => <span key={index} />)}
         </div>
       )}
       <div className="graph-node-icon">
