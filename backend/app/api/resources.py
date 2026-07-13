@@ -472,7 +472,7 @@ async def get_feedback_stats(concept: str):
 _DEFAULT_THINKING_STEPS = [
     {"agent": "Navigator", "stage": "navigator", "message": "正在规划「{concept}」的学习路径...", "icon": "map"},
     {"agent": "Generator", "stage": "builder", "message": "正在为「{concept}」生成个性化教学资源...", "icon": "sparkles"},
-    {"agent": "Reviewer", "stage": "debate", "message": "正在提交辩论议会审核...", "icon": "scale"},
+    {"agent": "Reviewer", "stage": "debate", "message": "正在执行快速资源校验...", "icon": "scale"},
     {"agent": "System", "stage": "complete", "message": "资源生成流程全部完成。", "icon": "check"},
 ]
 
@@ -483,30 +483,64 @@ async def get_thinking_path(concept: str):
     task = find_latest_generation_task_by_concept(concept)
     if task:
         status = task.get("status") or "pending"
-        is_completed = status == "completed"
+        has_resource = find_latest_resource_by_concept(concept) is not None
+        is_completed = status == "completed" or (status == "failed" and has_resource)
+        is_failed_without_resource = status == "failed" and not has_resource
         steps = [
             {
                 "agent": "Navigator",
                 "stage": "navigator",
-                "message": f"已完成「{concept}」学习路径规划" if is_completed else f"正在规划「{concept}」的学习路径...",
+                "message": (
+                    f"已完成「{concept}」学习路径规划"
+                    if is_completed
+                    else (
+                        f"上次「{concept}」路径规划记录未完成，可点击重新生成"
+                        if is_failed_without_resource
+                        else f"正在规划「{concept}」的学习路径..."
+                    )
+                ),
                 "icon": "map",
             },
             {
                 "agent": "Generator",
                 "stage": "builder",
-                "message": f"已完成「{concept}」教学资源生成" if is_completed else f"正在为「{concept}」生成个性化教学资源...",
+                "message": (
+                    f"已完成「{concept}」教学资源生成"
+                    if is_completed
+                    else (
+                        "上次生成未产出资源，新版会在 AI 超时时自动切换为基础资源模板"
+                        if is_failed_without_resource
+                        else f"正在为「{concept}」生成个性化教学资源..."
+                    )
+                ),
                 "icon": "sparkles",
             },
             {
                 "agent": "Reviewer",
                 "stage": "debate",
-                "message": task.get("stage_message") or "正在提交辩论议会审核...",
+                "message": (
+                    "快速资源校验已完成"
+                    if is_completed
+                    else (
+                        task.get("stage_message") or "上次生成中断，等待重新生成"
+                        if is_failed_without_resource
+                        else (task.get("stage_message") or "正在执行快速资源校验...")
+                    )
+                ),
                 "icon": "scale",
             },
             {
                 "agent": "System",
                 "stage": "complete",
-                "message": "资源生成流程全部完成。" if is_completed else f"当前状态：{status}",
+                "message": (
+                    "资源已可用，可继续学习。"
+                    if is_completed
+                    else (
+                        "上次生成失败，请重新生成；新版生成链路会优先保证资源可用。"
+                        if is_failed_without_resource
+                        else f"当前状态：{status}"
+                    )
+                ),
                 "icon": "check",
             },
         ]

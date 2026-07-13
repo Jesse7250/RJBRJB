@@ -217,6 +217,8 @@ class ProfilerAgent(BaseAgent):
         TODO: [待完成] 使用 LLM 做更准确的意图分类
         """
         msg = message.lower()
+        if any(w in msg for w in ["画像", "学习行为", "认知风格", "学习偏好", "学习节奏", "更新画像", "分析画像"]):
+            return "PROFILE_UPDATE"
         if any(w in msg for w in ["学", "讲", "教", "什么是", "怎么", "如何做"]):
             return "KNOWLEDGE_REQUEST"
         if any(w in msg for w in ["错", "报错", "bug", "error", "运行不了"]):
@@ -231,6 +233,8 @@ class ProfilerAgent(BaseAgent):
         self, message: str, intent: str, profile: StudentProfile
     ) -> str:
         """生成自然语言回复"""
+        if intent == "PROFILE_UPDATE":
+            return "好的，我会结合你的学习行为、练习表现和对话记录更新学习画像，并用它来调整后续推荐。"
         if intent == "KNOWLEDGE_REQUEST":
             return "好的，我已经了解了你的学习背景，接下来为你规划学习路径并生成个性化资源。"
         if intent == "CODE_HELP":

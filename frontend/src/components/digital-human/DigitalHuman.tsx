@@ -7,12 +7,43 @@
  */
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { Volume2, VolumeX } from 'lucide-react'
+import { Gauge, Radio, Volume2, VolumeX } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useSparkTTS } from '@/components/digital-human/useSparkTTS'
+import { ttsApi } from '@/services/api'
 
 interface DigitalHumanProps { text: string; concept?: string; className?: string }
+
+function buildTeachingScript(rawText: string, concept?: string) {
+  const cleaned = rawText
+    .replace(/```[\s\S]*?```/g, '这里有一段示例代码，可以先看结构，再关注变量和输出结果。')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/!\[[^\]]*]\([^)]*\)/g, '')
+    .replace(/\[[^\]]+]\([^)]*\)/g, '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const heading = line.match(/^#{1,6}\s*(.+)$/)
+      if (heading) return `接下来我们看${heading[1]}。`
+      return line
+        .replace(/^[-*+]\s+/, '这里有一个要点：')
+        .replace(/^\d+[.)、]\s+/, '第一个需要注意的是，')
+        .replace(/\*\*/g, '')
+        .replace(/__/g, '')
+        .replace(/[>#|]/g, ' ')
+    })
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (!cleaned) return ''
+  const intro = concept
+    ? `这节课我们围绕${concept}来学习。我会按照讲义内容，用老师讲课的方式帮你梳理重点。`
+    : '这节课我会按照讲义内容，用老师讲课的方式帮你梳理重点。'
+  return `${intro} ${cleaned}`.slice(0, 1800)
+}
 
 function MouthBars({ active }: { active: boolean }) {
   const bars = [0, 1, 2, 3, 4, 5, 6]
@@ -42,55 +73,101 @@ function SoundRings({ active }: { active: boolean }) {
 export function DigitalHuman({ text, concept, className }: DigitalHumanProps) {
   const { speaking, sparkAvailable, speak: ttsSpeak, stop: ttsStop } = useSparkTTS()
   const [rate, setRate] = useState(1)
+  const [preparing, setPreparing] = useState(false)
+  const [scriptCache, setScriptCache] = useState<{ key: string; script: string } | null>(null)
+  const teachingScript = buildTeachingScript(text, concept)
+  const sourceLabel = sparkAvailable ? '讯飞超拟人 TTS' : '浏览器语音'
+  const sourceDesc = sparkAvailable === null
+    ? '正在检测语音服务'
+    : sparkAvailable
+      ? '已连接高质量合成语音'
+      : '本机浏览器朗读，后端配置讯飞后会自动切换'
   // 界面倍速 → API speed (0-100)
   const toApiSpeed = (r: number) => r === 0.5 ? 25 : r === 2 ? 100 : 50
+  const scriptKey = `${concept || ''}:${text.length}:${text.slice(0, 120)}`
 
-  const handleSpeak = () => {
-    if (speaking) { ttsStop(); return }
-    ttsSpeak(text, toApiSpeed(rate))
+  const getTeacherScript = async () => {
+    if (!text.trim()) return teachingScript || text
+    if (scriptCache?.key === scriptKey) return scriptCache.script
+    setPreparing(true)
+    try {
+      const response = await ttsApi.teachingScript(text, concept)
+      const script = response.data?.script?.trim() || teachingScript || text
+      setScriptCache({ key: scriptKey, script })
+      return script
+    } catch {
+      const script = teachingScript || text
+      setScriptCache({ key: scriptKey, script })
+      return script
+    } finally {
+      setPreparing(false)
+    }
   }
 
-  const handleRateChange = (r: number) => {
+  const handleSpeak = async () => {
+    if (speaking) { ttsStop(); return }
+    const script = await getTeacherScript()
+    ttsSpeak(script, toApiSpeed(rate))
+  }
+
+  const handleRateChange = async (r: number) => {
     setRate(r)
-    if (speaking) { ttsStop(); setTimeout(() => ttsSpeak(text, toApiSpeed(r)), 150) }
+    if (speaking) {
+      ttsStop()
+      const script = await getTeacherScript()
+      setTimeout(() => ttsSpeak(script, toApiSpeed(r)), 150)
+    }
   }
 
   return (
     <div className={cn('flex flex-col items-center py-4', className)}>
       {/* TTS 来源标记 */}
-      <div className="mb-2 text-[10px] text-slate-400">
-        {sparkAvailable === null ? '' : sparkAvailable ? '讯飞超拟人 TTS' : '浏览器语音（可配置讯飞 TTS 提升音质）'}
+      <div className={cn('digital-human-source-card', sparkAvailable && 'spark-ready')}>
+        <span className="digital-human-source-icon"><Radio className="h-3.5 w-3.5" /></span>
+        <div>
+          <strong>当前音源：{sparkAvailable === null ? '检测中' : sourceLabel}</strong>
+          <small>{sourceDesc}</small>
+        </div>
       </div>
 
       {/* 形象区 */}
-      <div className="relative mb-6" style={{ width: 200, height: 200 }}>
+      <div className="digital-human-orb">
         <SoundRings active={speaking} />
-        <motion.div className="absolute inset-0 flex items-center justify-center rounded-full"
-          style={{ background: 'radial-gradient(circle at 40% 35%, #fef3c7 0%, #fde68a 40%, #fbbf24 100%)' }}
+        <motion.div className="digital-human-core"
           animate={speaking ? { scale: [1, 1.06, 0.98, 1.04, 1], boxShadow: ['0 0 20px rgba(251,191,36,0.3)', '0 0 50px rgba(251,191,36,0.6)', '0 0 30px rgba(251,191,36,0.4)', '0 0 55px rgba(251,191,36,0.5)', '0 0 20px rgba(251,191,36,0.3)'] } : { scale: [1, 1.02, 1], boxShadow: '0 0 15px rgba(251,191,36,0.15)' }}
           transition={speaking ? { duration: 1.2, repeat: Infinity, ease: 'easeInOut' } : { duration: 4, repeat: Infinity, ease: 'easeInOut' }}>
-          <motion.div className="absolute rounded-full" style={{ width: 210, height: 210, border: '3px solid transparent', borderTopColor: 'rgba(251,191,36,0.5)', borderRightColor: 'rgba(245,158,11,0.3)' }}
+          <motion.div className="digital-human-ring primary"
             animate={{ rotate: 360 }} transition={{ duration: speaking ? 2 : 10, repeat: Infinity, ease: 'linear' }} />
-          <motion.div className="absolute rounded-full" style={{ width: 220, height: 220, border: '2px solid transparent', borderBottomColor: 'rgba(168,85,247,0.35)', borderLeftColor: 'rgba(139,92,246,0.2)' }}
+          <motion.div className="digital-human-ring secondary"
             animate={{ rotate: -360 }} transition={{ duration: speaking ? 3.5 : 14, repeat: Infinity, ease: 'linear' }} />
-          <svg viewBox="0 0 120 120" className="w-[130px] h-[130px]" fill="none">
-            <circle cx="60" cy="42" r="24" fill="url(#skin)" stroke="#d4a853" strokeWidth="1.5" />
-            <path d="M36 35 Q36 18 60 18 Q84 18 84 35 Q84 28 60 28 Q36 28 36 35Z" fill="#5c4033" />
-            <rect x="48" y="36" width="10" height="6" rx="2" fill="none" stroke="#4a3728" strokeWidth="1.2" />
-            <rect x="62" y="36" width="10" height="6" rx="2" fill="none" stroke="#4a3728" strokeWidth="1.2" />
-            <line x1="58" y1="39" x2="62" y2="39" stroke="#4a3728" strokeWidth="1" />
-            <circle cx="53" cy="39" r="1.8" fill="#1e293b" /><circle cx="67" cy="39" r="1.8" fill="#1e293b" />
-            <motion.path d={speaking ? "M52 51 Q60 58 68 51" : "M54 50 Q60 54 66 50"} stroke="#c2410c" strokeWidth="1.2" fill="none" strokeLinecap="round"
-              animate={speaking ? { d: "M52 51 Q60 58 68 51" } : { d: "M54 50 Q60 54 66 50" }} transition={{ duration: 0.3 }} />
-            <path d="M42 70 L42 95 Q42 105 60 105 Q78 105 78 95 L78 70" fill="url(#shirt)" stroke="#6366f1" strokeWidth="1.5" />
-            <path d="M55 70 L60 80 L65 70" fill="#4f46e5" stroke="#4338ca" strokeWidth="0.8" />
-            <path d="M57 80 L60 98 L63 80" fill="#4f46e5" />
-            <path d="M42 74 Q30 82 28 96" stroke="url(#skin)" strokeWidth="10" strokeLinecap="round" fill="none" />
-            <path d="M78 74 Q90 78 94 68" stroke="url(#skin)" strokeWidth="10" strokeLinecap="round" fill="none" />
-            <line x1="92" y1="72" x2="102" y2="52" stroke="#78350f" strokeWidth="2.5" strokeLinecap="round" />
+          <svg viewBox="0 0 120 120" className="digital-human-hive-mark" fill="none" aria-hidden="true">
+            <path d="M60 10 95 30v40L60 90 25 70V30L60 10Z" fill="url(#hiveFill)" stroke="#f6a21a" strokeWidth="3" />
+            <path d="M60 24 82 37v26L60 76 38 63V37L60 24Z" fill="#ffffff" stroke="#08a99a" strokeWidth="2" />
+            <path d="M60 39 72 46v14L60 67 48 60V46L60 39Z" fill="#fff4df" stroke="#f6a21a" strokeWidth="2" />
+            <path d="M44 28 28 37v18l16 9M76 28l16 9v18l-16 9" stroke="#bfdee8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M53 54h14" stroke="#07897d" strokeWidth="3" strokeLinecap="round" />
+            <motion.path
+              d="M42 82c10 8 26 8 36 0"
+              stroke="#08a99a"
+              strokeWidth="3"
+              strokeLinecap="round"
+              animate={speaking ? { pathLength: [0.35, 1, 0.35], opacity: [0.45, 1, 0.45] } : { pathLength: 0.65, opacity: 0.65 }}
+              transition={{ duration: 1.1, repeat: speaking ? Infinity : 0, ease: 'easeInOut' }}
+            />
+            <motion.path
+              d="M34 94c15 10 37 10 52 0"
+              stroke="#f6a21a"
+              strokeWidth="3"
+              strokeLinecap="round"
+              animate={speaking ? { pathLength: [0.25, 1, 0.25], opacity: [0.35, 0.9, 0.35] } : { pathLength: 0.55, opacity: 0.55 }}
+              transition={{ duration: 1.35, repeat: speaking ? Infinity : 0, ease: 'easeInOut' }}
+            />
             <defs>
-              <radialGradient id="skin" cx="40%" cy="35%"><stop stopColor="#fef7ed" /><stop offset="100%" stopColor="#f5d0a9" /></radialGradient>
-              <linearGradient id="shirt" x1="42" y1="70" x2="78" y2="105"><stop stopColor="#e0e7ff" /><stop offset="100%" stopColor="#a5b4fc" /></linearGradient>
+              <linearGradient id="hiveFill" x1="25" y1="12" x2="96" y2="88">
+                <stop stopColor="#fff4df" />
+                <stop offset="0.48" stopColor="#f6d36f" />
+                <stop offset="1" stopColor="#f6a21a" />
+              </linearGradient>
             </defs>
           </svg>
         </motion.div>
@@ -99,21 +176,23 @@ export function DigitalHuman({ text, concept, className }: DigitalHumanProps) {
       <div className="-mt-2 mb-3"><MouthBars active={speaking} /></div>
 
       <motion.div className="mb-4 text-sm font-bold" animate={{ color: speaking ? '#059669' : '#94a3b8' }}>
-        {speaking ? '正在讲解...' : '点击按钮开始'}
+        {preparing ? '正在生成老师讲解稿...' : speaking ? '正在讲解...' : '点击按钮开始'}
       </motion.div>
 
       <div className="flex flex-wrap items-center justify-center gap-2">
-        <Button size="sm" className={cn('h-10 gap-1.5 rounded-xl text-sm font-bold min-w-[120px] transition-all', speaking ? 'bg-emerald-500 text-white hover:bg-emerald-600 shadow-lg shadow-emerald-500/30' : 'bg-amber-500 text-white hover:bg-amber-600 shadow-lg shadow-amber-500/30')}
+        <Button type="button" size="sm" className={cn('h-10 gap-1.5 rounded-xl text-sm font-bold min-w-[120px] transition-all', speaking ? 'bg-emerald-500 text-white hover:bg-emerald-600 shadow-lg shadow-emerald-500/30' : 'bg-amber-500 text-white hover:bg-amber-600 shadow-lg shadow-amber-500/30')}
+          disabled={preparing}
           onClick={handleSpeak}>
           {speaking ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
-          {speaking ? '停止' : '朗读讲解'}
+          {preparing ? '生成讲解稿中' : speaking ? '停止' : '朗读讲解'}
         </Button>
       </div>
 
-      <div className="mt-2 flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-0.5">
+      <div className="digital-human-rate-control">
+        <span><Gauge className="h-3.5 w-3.5" />语速</span>
         {[0.5, 1, 2].map((r) => (
-          <button key={r} onClick={() => handleRateChange(r)}
-            className={cn('rounded-md px-3 py-1 text-xs font-bold transition-all', rate === r ? 'bg-indigo-500 text-white shadow' : 'text-slate-500 hover:bg-slate-100')}>{r}x</button>
+          <button key={r} type="button" onClick={() => handleRateChange(r)}
+            className={cn(rate === r && 'active')}>{r}x</button>
         ))}
       </div>
 

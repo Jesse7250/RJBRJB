@@ -84,7 +84,7 @@ class ReviewerAgent(BaseAgent):
         """根据 stage 分发到 review / tutor / evaluate"""
         stage = message.stage
         if stage == "reviewer":
-            return self.review(message)
+            return self.review(message, mode=message.payload.get("review_mode"))
         if stage == "tutor":
             return self.tutor(message)
         if stage == "evaluator":
@@ -92,7 +92,7 @@ class ReviewerAgent(BaseAgent):
         # 若 stage 未命中，则按 payload 中的 action 字段兜底分发
         action = message.payload.get("action", "review")
         if action == "review":
-            return self.review(message)
+            return self.review(message, mode=message.payload.get("review_mode"))
         if action == "tutor":
             return self.tutor(message)
         if action == "evaluate":

@@ -393,8 +393,10 @@ export const assistantApi = {
 }
 
 export const ttsApi = {
-  synthesize: (text: string, speed?: number) =>
-    api.post('/tts/synthesize', { text, speed: speed ?? 50 }, { responseType: 'blob' }),
+  teachingScript: (lecture: string, concept?: string) =>
+    api.post<{ script: string; provider: string; fallback: boolean }>('/tts/teaching-script', { lecture, concept: concept || '' }),
+  synthesize: (text: string, speed?: number, voice?: string) =>
+    api.post('/tts/synthesize', { text, speed: speed ?? 50, voice: voice || 'x4_xiaoyan' }, { responseType: 'blob' }),
   status: () =>
     api.get<{ tts_available: boolean }>('/tts/status'),
 }

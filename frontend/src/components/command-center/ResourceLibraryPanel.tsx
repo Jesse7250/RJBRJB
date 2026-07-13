@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { motion } from 'framer-motion'
-import { BookOpen, Ear, Eye, FileText, Loader2, Play, RefreshCw, Route, Send, Sparkles } from 'lucide-react'
+import { AudioLines, BookOpen, BookOpenText, Loader2, MonitorPlay, Play, RefreshCw, Route, Send, Sparkles } from 'lucide-react'
 import type {
   ResourceDetail,
   ResourceEvolutionResponse,
@@ -10,9 +10,8 @@ import type {
 } from '@/services/api'
 import { Panel, PanelHeader } from './Panel'
 import { cn } from '@/lib/utils'
-import { FurnaceTimeline } from '@/components/resources/FurnaceTimeline'
 import type { CodeRunResult, ExerciseView } from './types'
-import { BilibiliVideoPlayer } from '@/components/resources/CognitiveStyleRenderer'
+import { BilibiliVideoPlayer, TTSReader } from '@/components/resources/CognitiveStyleRenderer'
 import type { CognitiveStyle } from '@/components/resources/CognitiveStyleRenderer'
 import { DigitalHuman } from '@/components/digital-human/DigitalHuman'
 
@@ -436,39 +435,39 @@ export function ResourceLibraryPanel({
         {!loading && hasResource && activeSection === 'document' && (
           <div className="resource-document">
             {/* 认知风格切换器 */}
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-1 rounded-xl border border-slate-600/40 bg-slate-800/60 p-1 backdrop-blur-sm">
+            <div className="resource-style-toolbar">
+              <div className="resource-style-switcher">
                 {([
-                  { key: 'text' as CognitiveStyle, label: '文字型', icon: FileText, emoji: '📖' },
-                  { key: 'visual' as CognitiveStyle, label: '视觉型', icon: Eye, emoji: '👁' },
-                  { key: 'auditory' as CognitiveStyle, label: '听觉型', icon: Ear, emoji: '👂' },
+                  { key: 'text' as CognitiveStyle, label: '文字型', icon: BookOpenText, desc: '精读讲义' },
+                  { key: 'visual' as CognitiveStyle, label: '视觉型', icon: MonitorPlay, desc: '视频讲解' },
+                  { key: 'auditory' as CognitiveStyle, label: '听觉型', icon: AudioLines, desc: '语音讲解' },
                 ]).map((s) => {
                   const Icon = s.icon
                   const active = styleMode === s.key
                   return (
                     <button key={s.key} onClick={() => onStyleChange?.(s.key)}
-                      className={cn('flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-all',
-                        active ? 'bg-gradient-to-r from-indigo-500 to-violet-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-700/60 hover:text-slate-200')}
+                      className={cn('resource-style-option', active && 'active')}
                       title={s.label}>
-                      <Icon className="h-3.5 w-3.5" />
-                      <span className="hidden sm:inline">{s.emoji} {s.label}</span>
+                      <span className="resource-style-option-icon"><Icon className="h-4 w-4" /></span>
+                      <span>{s.label}</span>
+                      <em>{s.desc}</em>
                     </button>
                   )
                 })}
               </div>
-              <span className="rounded-full border border-slate-600/40 px-2.5 py-0.5 text-[11px] font-semibold text-slate-400">
-                {styleMode === 'text' && '📖 纯文本阅读模式'}
-                {styleMode === 'visual' && '👁 视频讲解模式'}
-                {styleMode === 'auditory' && '👂 语音朗读模式'}
+              <span className="resource-style-summary">
+                {styleMode === 'text' && '当前为讲义精读模式'}
+                {styleMode === 'visual' && '当前为视频讲解模式'}
+                {styleMode === 'auditory' && '当前为语音讲解模式'}
               </span>
             </div>
 
             {/* 👁 视觉型：视频播放器 */}
             {styleMode === 'visual' && <BilibiliVideoPlayer concept={selectedConcept} />}
 
-            {/* 👂 听觉型：数字人朗读 */}
+            {/* 👂 听觉型：自动生成老师讲解稿与语音 */}
             {styleMode === 'auditory' && (
-              <DigitalHuman text={activeResource?.audio_text || activeResource?.document || ''} concept={selectedConcept} />
+              <TTSReader text={activeResource?.document || activeResource?.audio_text || ''} concept={selectedConcept} />
             )}
 
             <RichLearningText title="智能讲义" content={activeResource?.document || '后端未返回讲义内容。'} />
@@ -574,8 +573,8 @@ export function ResourceLibraryPanel({
 
         {!loading && hasResource && activeSection === 'audio' && (
           <div className="resource-document">
-            <DigitalHuman
-              text={activeResource?.audio_text || activeResource?.document || '请先生成学习资源，即可听取数字人讲解。'}
+            <TTSReader
+              text={activeResource?.document || activeResource?.audio_text || '请先生成学习资源，即可听取数字人讲解。'}
               concept={selectedConcept}
             />
           </div>

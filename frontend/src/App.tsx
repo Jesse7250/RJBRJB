@@ -5,6 +5,7 @@ import {
   BookOpen,
   Brain,
   Braces,
+  Bot,
   ChevronRight,
   Code2,
   Clock3,
@@ -25,9 +26,11 @@ import {
   Send,
   Server,
   ShieldCheck,
+  Sparkles,
   Star,
   TerminalSquare,
   UserRound,
+  Volume2,
 } from 'lucide-react'
 
 import {
@@ -52,6 +55,7 @@ import {
 } from '@/services/api'
 import { SocraticPanel } from '@/components/socratic/SocraticPanel'
 import { FloatingAssistant } from '@/components/digital-human/FloatingAssistant'
+import { useSparkTTS } from '@/components/digital-human/useSparkTTS'
 import { cn } from '@/lib/utils'
 import {
   AgentPanel,
@@ -101,6 +105,16 @@ type CourseCard = {
   accent: 'teal' | 'orange' | 'blue' | 'green'
   summary: string
   tags: string[]
+}
+
+type ResourcePanelCacheEntry = {
+  resource: ResourceDetail | null
+  status: string
+  thinkingSteps: ThinkingStep[]
+  versions: ResourceVersion[]
+  evolution: ResourceEvolutionResponse | null
+  feedbackStats: ResourceFeedbackStats | null
+  cachedAt: number
 }
 
 const COURSE_CATALOG: CourseCard[] = [
@@ -515,12 +529,36 @@ function tryParseJsonString(value: unknown): unknown {
   }
 }
 
+function findTextField(value: unknown, depth = 0): string {
+  if (depth > 4 || value == null) return ''
+  const parsed = typeof value === 'string' ? tryParseJsonString(value) : value
+  if (typeof parsed === 'string') return parsed.trim()
+  if (Array.isArray(parsed)) {
+    for (const item of parsed) {
+      const text = findTextField(item, depth + 1)
+      if (text) return text
+    }
+    return ''
+  }
+  if (typeof parsed !== 'object') return ''
+  const record = parsed as Record<string, unknown>
+  for (const key of ['message', 'response_message', 'question', 'answer', 'text', 'reply', 'content']) {
+    const candidate = record[key]
+    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim()
+  }
+  for (const key of ['payload', 'data', 'result', 'socratic', 'response']) {
+    const text = findTextField(record[key], depth + 1)
+    if (text) return text
+  }
+  return ''
+}
+
 function extractAgentText(response?: AgentResponse | null, preferredModality?: 'text' | 'visual' | 'auditory' | 'kinesthetic') {
   const rawContent = response?.content
   if (!rawContent) return ''
   const content = typeof rawContent === 'string' ? tryParseJsonString(rawContent) : rawContent
   if (typeof content === 'string') return content
-  const directText = (content && (content as any).message) || (content as any).response_message || (content as any).question || (content as any).answer || (content as any).text
+  const directText = findTextField(content)
   if (directText) {
     const profile = content.profile || response?.profile_update
     if (!profile) return String(directText)
@@ -574,6 +612,32 @@ function extractTutorPayload(response?: AgentResponse | null): TutorPayload | un
   }
 }
 
+function shouldUseSocraticFallback(userMessage: string) {
+  const text = userMessage.trim()
+  if (!text) return false
+  return /(？|\?|什么|不会|不懂|不理解|为什么|怎么|如何|哪里错|报错|错误|问题|帮我|提示|引导|解释|区别|用法|语法|运行失败|看不懂|练习题|做错|答错|没掌握|没理解|变量|循环|函数|条件|列表|字典|文件读写|代码)/i.test(text)
+}
+
+function looksLikeProfileUpdateResponse(response?: AgentResponse | null) {
+  const profile = response?.content?.profile || response?.profile_update
+  return Boolean(profile || response?.agent_name === 'Profiler' || response?.response_type === 'profile_update' || response?.response_type === 'profiler')
+}
+
+function createSocraticFallbackPayload(text: string, concept: string, userMessage: string): TutorPayload | undefined {
+  const cleanText = text.trim()
+  if (!cleanText || !shouldUseSocraticFallback(userMessage)) return undefined
+  const looksLikeInstructionEcho = /请继续用苏格拉底式|不要直接给答案|继续.*引导/.test(cleanText)
+  const question = looksLikeInstructionEcho
+    ? `换个角度看「${concept}」：你现在最不确定的是概念含义、代码写法，还是运行结果？`
+    : cleanText
+  return {
+    question,
+    hint: `先围绕「${concept}」说出你的判断依据，再继续下一步引导。`,
+    canProvideAnswer: false,
+    stage: 'guided',
+  }
+}
+
 function extractProfileFromResponse(response?: AgentResponse | null) {
   const profile = response?.content?.profile || response?.profile_update
   return profile && typeof profile === 'object' ? profile as Partial<SessionResponse['profile']> : null
@@ -623,6 +687,7 @@ function App() {
   const [resourcePanelLoading, setResourcePanelLoading] = useState(false)
   const [conceptDetail, setConceptDetail] = useState<any | null>(null)
   const [styleMode, setStyleMode] = useState<'text' | 'visual' | 'auditory' | 'kinesthetic'>('text')
+  const styleModeRef = useRef<'text' | 'visual' | 'auditory' | 'kinesthetic'>('text')
   const [chatInput, setChatInput] = useState(() => `我想学习 ${targetConcept}`)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
     createChatMessage('assistant', `你已经掌握了前置知识，接下来我们学习「${targetConcept}」。你可以直接提问，我会结合学习画像、知识图谱和练习记录进行辅导。`, 'Socrates'),
@@ -634,10 +699,45 @@ function App() {
   const [codeLoading, setCodeLoading] = useState(false)
   const [resourceStatus, setResourceStatus] = useState('资源生成接口待命')
   const [resourceLoading, setResourceLoading] = useState(false)
+  const resourcePanelCacheRef = useRef<Map<string, ResourcePanelCacheEntry>>(new Map())
+  const resourcePanelPendingRef = useRef<Map<string, Promise<ResourcePanelCacheEntry>>>(new Map())
   const [authUser, setAuthUser] = useState(() => {
     if (typeof window === 'undefined') return ''
     return window.localStorage.getItem('eduhive.username') ?? ''
   })
+
+  useEffect(() => {
+    styleModeRef.current = styleMode
+  }, [styleMode])
+
+  const mergeSessionProfile = (profilePatch: Partial<SessionResponse['profile']>) => {
+    setSession((current) => current ? {
+      ...current,
+      profile: {
+        ...current.profile,
+        ...profilePatch,
+        cognitive_modality: styleModeRef.current,
+      },
+    } : current)
+  }
+
+  const applyResourceCache = (concept: string, entry: ResourcePanelCacheEntry, note = 'cache') => {
+    setResourceConcept(concept)
+    setResourcePackage(entry.resource)
+    setThinkingSteps(entry.thinkingSteps)
+    setVersions(entry.versions)
+    setResourceEvolution(entry.evolution)
+    setFeedbackStats(entry.feedbackStats)
+    setResourceStatus(entry.status)
+    setWorkspaceNote(
+      entry.resource
+        ? `已从本地缓存载入「${concept}」资源包`
+        : `「${concept}」暂无已生成资源，请先生成。`,
+    )
+    if (session && note !== 'silent') {
+      behaviorApi.log(session.session_id, 'resource_cache_hit', concept, { surface: note }).catch(() => undefined)
+    }
+  }
   const [loginUsername, setLoginUsername] = useState(() => {
     if (typeof window === 'undefined') return ''
     return window.localStorage.getItem('eduhive.username') ?? ''
@@ -805,7 +905,9 @@ function App() {
         if (sessionRes.data.suggested_path?.length) setPlannedPath(sessionRes.data.suggested_path)
         setSession(sessionRes.data)
         if (['text', 'visual', 'auditory', 'kinesthetic'].includes(sessionRes.data.profile.cognitive_modality)) {
-          setStyleMode(sessionRes.data.profile.cognitive_modality as 'text' | 'visual' | 'auditory' | 'kinesthetic')
+          const backendStyle = sessionRes.data.profile.cognitive_modality as 'text' | 'visual' | 'auditory' | 'kinesthetic'
+          styleModeRef.current = backendStyle
+          setStyleMode(backendStyle)
         }
         setGraph(graphRes.data)
         if (layoutRes?.data) setGraphLayout(layoutRes.data)
@@ -851,7 +953,14 @@ function App() {
       if (heatmapRes.status === 'fulfilled') setHeatmap(heatmapRes.value.data.data || [])
       if (profileRes.status === 'fulfilled' && !profileRes.value.data?.error) {
         setSession((current) => current && current.session_id === sessionId
-          ? { ...current, profile: { ...current.profile, ...profileRes.value.data } }
+          ? {
+              ...current,
+              profile: {
+                ...current.profile,
+                ...profileRes.value.data,
+                cognitive_modality: styleModeRef.current,
+              },
+            }
           : current)
       }
       if (planRes.status === 'fulfilled') {
@@ -1039,16 +1148,18 @@ function App() {
     }
   }
 
-  const sendChat = async (messageOverride?: string) => {
+  const sendChat = async (messageOverride?: string, messageTypeOverride?: 'text' | 'tutor') => {
     const messageText = (typeof messageOverride === 'string' ? messageOverride : chatInput).trim()
     if (!messageText || chatLoading) return
+    const wantsTutor = messageTypeOverride === 'tutor' || (!messageTypeOverride && shouldUseSocraticFallback(messageText))
+    const messageType = wantsTutor ? 'tutor' : 'text'
     setChatInput('')
     const assistantId = `assistant-${Date.now()}`
     setChatMessages((prev) => [
       ...prev,
       createChatMessage('user', messageText),
       {
-        ...createChatMessage('assistant', '正在连接 Socrates 辅导链路...', 'Socrates', true),
+        ...createChatMessage('assistant', wantsTutor ? '正在连接 Socrates 辅导链路...' : '正在连接 AI 助教...', wantsTutor ? 'Socrates' : 'Agent', true),
         id: assistantId,
       },
     ])
@@ -1076,18 +1187,29 @@ function App() {
         profile: {
           ...current.profile,
           ...profile,
-          cognitive_modality: styleMode,
+          cognitive_modality: styleModeRef.current,
         },
       } : current)
     }
     const applyAssistantResponse = (response: AgentResponse | null, fallbackText: string) => {
-      const tutorPayload = extractTutorPayload(response)
-      const content = tutorPayload?.question || extractAgentText(response, styleMode) || fallbackText
+      const agentText = extractAgentText(response, styleMode) || fallbackText
+      const profileOnly = looksLikeProfileUpdateResponse(response)
+      const tutorPayload = extractTutorPayload(response) || (
+        profileOnly && wantsTutor
+          ? {
+              question: `我们先聚焦「${selectedConcept}」：你觉得它最核心的用途是什么？可以先用一句话说出你的理解。`,
+              hint: `不要急着记定义，先想「${selectedConcept}」解决了什么学习或编程问题。`,
+              canProvideAnswer: false,
+              stage: 'guided',
+            }
+          : createSocraticFallbackPayload(agentText, selectedConcept, messageText)
+      )
+      const content = tutorPayload?.question || agentText
       applyAssistantMessage(content, response?.agent_name || (tutorPayload ? 'Socrates' : 'Agent'), false, tutorPayload)
     }
 
     try {
-      const response = await sessionApi.chatStream(session.session_id, messageText)
+      const response = await sessionApi.chatStream(session.session_id, messageText, messageType)
       if (!response.ok) throw new Error(`chat-stream ${response.status}`)
       const reader = response.body?.getReader()
       if (!reader) throw new Error('无法建立 SSE 流')
@@ -1119,14 +1241,14 @@ function App() {
       }
 
       if (!finalResponse) {
-        const fallback = await sessionApi.chat(session.session_id, { message: messageText, message_type: 'text' })
+        const fallback = await sessionApi.chat(session.session_id, { message: messageText, message_type: messageType })
         finalResponse = fallback.data
         syncProfileFromResponse(finalResponse)
         applyAssistantResponse(finalResponse, '同步对话完成，但没有可展示文本。')
       }
     } catch (error) {
       try {
-        const fallback = await sessionApi.chat(session.session_id, { message: messageText, message_type: 'text' })
+        const fallback = await sessionApi.chat(session.session_id, { message: messageText, message_type: messageType })
         finalResponse = fallback.data
         syncProfileFromResponse(finalResponse)
         applyAssistantResponse(finalResponse, '同步对话完成，但没有可展示文本。')
@@ -1140,10 +1262,24 @@ function App() {
 
   const loadResource = async (concept = resourceConcept, surface: 'open' | 'refresh' | 'switch' = 'open') => {
     setResourceConcept(concept)
+    const shouldUseCache = surface !== 'refresh'
+    const cached = resourcePanelCacheRef.current.get(concept)
+    if (shouldUseCache && cached) {
+      applyResourceCache(concept, cached, surface)
+      return cached.resource
+    }
+    const pending = resourcePanelPendingRef.current.get(concept)
+    if (shouldUseCache && pending) {
+      setWorkspaceNote(`正在复用「${concept}」资源包读取任务...`)
+      const entry = await pending
+      applyResourceCache(concept, entry, surface)
+      return entry.resource
+    }
+
     setResourcePanelLoading(true)
     setWorkspaceNote(`正在读取「${concept}」的学习资源包...`)
     let loadedResource: ResourceDetail | null = null
-    try {
+    const requestTask = (async (): Promise<ResourcePanelCacheEntry> => {
       const [latestRes, thinkingRes, versionRes, evolutionRes, feedbackStatsRes] = await Promise.allSettled([
         resourceApi.getLatest(concept),
         resourceApi.getThinkingPath(concept),
@@ -1151,17 +1287,34 @@ function App() {
         resourceApi.getEvolution(concept),
         resourceApi.getFeedbackStats(concept),
       ])
+
+      let resource: ResourceDetail | null = null
       if (latestRes.status === 'fulfilled') {
-        const resource = latestRes.value.data.resource
-        loadedResource = resource
-        setResourcePackage(resource)
-        setResourceStatus(resource ? `已载入「${concept}」资源包` : `「${concept}」暂无已生成资源，请先生成。`)
-        setWorkspaceNote(resource ? `已载入「${concept}」资源包` : `「${concept}」暂无已生成资源，请先生成。`)
+        resource = latestRes.value.data.resource
       }
-      if (thinkingRes.status === 'fulfilled') setThinkingSteps(thinkingRes.value.data.steps || [])
-      if (versionRes.status === 'fulfilled') setVersions(versionRes.value.data.versions || [])
-      if (evolutionRes.status === 'fulfilled') setResourceEvolution(evolutionRes.value.data)
-      if (feedbackStatsRes.status === 'fulfilled') setFeedbackStats(feedbackStatsRes.value.data)
+      const status = resource ? `已载入「${concept}」资源包` : `「${concept}」暂无已生成资源，请先生成。`
+      return {
+        resource,
+        status,
+        thinkingSteps: thinkingRes.status === 'fulfilled' ? thinkingRes.value.data.steps || [] : [],
+        versions: versionRes.status === 'fulfilled' ? versionRes.value.data.versions || [] : [],
+        evolution: evolutionRes.status === 'fulfilled' ? evolutionRes.value.data : null,
+        feedbackStats: feedbackStatsRes.status === 'fulfilled' ? feedbackStatsRes.value.data : null,
+        cachedAt: Date.now(),
+      }
+    })()
+    resourcePanelPendingRef.current.set(concept, requestTask)
+    try {
+      const entry = await requestTask
+      loadedResource = entry.resource
+      resourcePanelCacheRef.current.set(concept, entry)
+      setResourcePackage(entry.resource)
+      setThinkingSteps(entry.thinkingSteps)
+      setVersions(entry.versions)
+      setResourceEvolution(entry.evolution)
+      setFeedbackStats(entry.feedbackStats)
+      setResourceStatus(entry.status)
+      setWorkspaceNote(entry.resource ? `已载入「${concept}」资源包` : `「${concept}」暂无已生成资源，请先生成。`)
       if (session) {
         behaviorApi.log(session.session_id, 'resource_switched', concept, { surface }).catch(() => undefined)
       }
@@ -1171,6 +1324,7 @@ function App() {
       setResourceEvolution(null)
       setFeedbackStats(null)
     } finally {
+      resourcePanelPendingRef.current.delete(concept)
       setResourcePanelLoading(false)
     }
     return loadedResource
@@ -1220,14 +1374,23 @@ function App() {
           }
         }
       }
-      const [thinkingRes, versionRes] = await Promise.allSettled([
-        resourceApi.getThinkingPath(concept),
-        resourceApi.getVersions(concept),
-      ])
-      if (thinkingRes.status === 'fulfilled') setThinkingSteps(thinkingRes.value.data.steps || [])
-      if (versionRes.status === 'fulfilled') setVersions(versionRes.value.data.versions || [])
+      if (completedResource) {
+        resourcePanelCacheRef.current.delete(concept)
+      }
       const loadedResource = await loadResource(concept, 'refresh').catch(() => {
-        if (completedResource) setResourcePackage(completedResource)
+        if (completedResource) {
+          setResourcePackage(completedResource)
+          const fallbackEntry: ResourcePanelCacheEntry = {
+            resource: completedResource,
+            status: '资源生成与辩论审核完成',
+            thinkingSteps,
+            versions,
+            evolution: resourceEvolution,
+            feedbackStats,
+            cachedAt: Date.now(),
+          }
+          resourcePanelCacheRef.current.set(concept, fallbackEntry)
+        }
         return completedResource
       })
       const finalResource = loadedResource || completedResource
@@ -1274,7 +1437,17 @@ function App() {
       error_report: data.error_report,
     })
     resourceApi.getFeedbackStats(concept)
-      .then((res) => setFeedbackStats(res.data))
+      .then((res) => {
+        setFeedbackStats(res.data)
+        const cached = resourcePanelCacheRef.current.get(concept)
+        if (cached) {
+          resourcePanelCacheRef.current.set(concept, {
+            ...cached,
+            feedbackStats: res.data,
+            cachedAt: Date.now(),
+          })
+        }
+      })
       .catch(() => undefined)
   }
 
@@ -1353,6 +1526,7 @@ function App() {
   }
 
   const changeStyleMode = async (mode: 'text' | 'visual' | 'auditory' | 'kinesthetic') => {
+    styleModeRef.current = mode
     setStyleMode(mode)
     setSession((current) => current ? {
       ...current,
@@ -1367,7 +1541,7 @@ function App() {
       sessionApi.updateProfile(session.session_id, { cognitive_modality: mode })
         .then((res) => {
           if (res.data.profile) {
-            setSession((current) => current ? { ...current, profile: res.data.profile } : current)
+            mergeSessionProfile(res.data.profile)
           }
         })
         .catch(() => {
@@ -1564,9 +1738,9 @@ function App() {
                   setInput={setChatInput}
                   messages={chatMessages}
                   loading={chatLoading}
-                  targetConcept={targetConcept}
+                  targetConcept={selectedConcept}
                   onSend={sendChat}
-                  onContinueTutor={() => sendChat('请继续用苏格拉底式提问引导我，不要直接给答案。')}
+                  onContinueTutor={() => sendChat(`我对「${selectedConcept}」还没有想清楚，请继续用一个具体问题引导我。`, 'tutor')}
                 />
                 <WorkspaceDock
                   activeNav={activeNav}
@@ -1751,6 +1925,11 @@ function CoursePortal({
             <p className="portal-kicker">AI 驱动的个性化课程空间</p>
             <h1><span>选择课程</span><span>进入你的智学蜂巢</span></h1>
             <span>从目标出发，系统会结合你的学习记录与掌握情况，推荐更适合当前阶段的课程内容。</span>
+            <div className="portal-hero-chips" aria-label="平台能力">
+              <span><Sparkles className="h-3.5 w-3.5" /> 智能推荐</span>
+              <span><Network className="h-3.5 w-3.5" /> 知识图谱</span>
+              <span><Brain className="h-3.5 w-3.5" /> 掌握度分析</span>
+            </div>
             <div className="portal-search">
               <Search className="h-5 w-5" />
               <input
@@ -1772,42 +1951,75 @@ function CoursePortal({
                 {authUser ? '查看学习账户' : '登录后同步学习记录'}
               </button>
             </div>
+            <div className="portal-learning-flow" aria-label="学习流程">
+              <div>
+                <span><BookOpen className="h-4 w-4" /></span>
+                <strong>选课</strong>
+                <em>从课程广场进入</em>
+              </div>
+              <i />
+              <div>
+                <span><Route className="h-4 w-4" /></span>
+                <strong>规划</strong>
+                <em>生成学习路径</em>
+              </div>
+              <i />
+              <div>
+                <span><MessageSquare className="h-4 w-4" /></span>
+                <strong>学习</strong>
+                <em>对话与资源协同</em>
+              </div>
+              <i />
+              <div>
+                <span><BarChart3 className="h-4 w-4" /></span>
+                <strong>评估</strong>
+                <em>追踪掌握进度</em>
+              </div>
+            </div>
           </div>
-          <form ref={loginCardRef} className={cn('portal-login-card', loginCardPulse && 'is-attention')} onSubmit={(event) => {
-            event.preventDefault()
-            onSubmitAuth()
-          }}>
-            <strong>{authUser ? '学习账户' : loginMode === 'register' ? '创建学习账户' : '登录学习账户'}</strong>
-            {authUser ? (
-              <>
-                <div className="portal-account-panel">
-                  <span>当前账号</span>
-                  <b>{authUser}</b>
-                </div>
-                <button type="button" onClick={() => onOpenCourse(featured)}>继续学习</button>
-                <button type="button" className="portal-secondary-button" onClick={onLogout} disabled={authLoading}>退出登录</button>
-              </>
-            ) : (
-              <>
-                <div className="portal-login-tabs" role="group" aria-label="登录模式">
-                  <button type="button" className={loginMode === 'login' ? 'active' : ''} onClick={() => onLoginModeChange('login')}>登录</button>
-                  <button type="button" className={loginMode === 'register' ? 'active' : ''} onClick={() => onLoginModeChange('register')}>注册</button>
-                </div>
-                <label>
-                  <span>账号</span>
-                  <input name="portal-username" value={loginUsername} onChange={(event) => onUsernameChange(event.target.value)} placeholder="请输入用户名或邮箱" autoComplete="username" />
-                </label>
-                <label>
-                  <span>密码</span>
-                  <input value={loginPassword} onChange={(event) => onPasswordChange(event.target.value)} placeholder="请输入密码" type="password" autoComplete={loginMode === 'register' ? 'new-password' : 'current-password'} />
-                </label>
-                <button type="submit" disabled={authLoading}>
-                  {authLoading ? '处理中...' : loginMode === 'register' ? '注册' : '登录'}
-                </button>
-              </>
-            )}
-            <p>{loginStatus}</p>
-          </form>
+          <div className="portal-hero-side">
+            <PortalDigitalHuman
+              authUser={authUser}
+              onFocusLogin={focusLoginCard}
+              onShowCourses={showCourseResults}
+              onOpenFeatured={() => onOpenCourse(featured)}
+            />
+            <form ref={loginCardRef} className={cn('portal-login-card', loginCardPulse && 'is-attention')} onSubmit={(event) => {
+              event.preventDefault()
+              onSubmitAuth()
+            }}>
+              <strong>{authUser ? '学习账户' : loginMode === 'register' ? '创建学习账户' : '登录学习账户'}</strong>
+              {authUser ? (
+                <>
+                  <div className="portal-account-panel">
+                    <span>当前账号</span>
+                    <b>{authUser}</b>
+                  </div>
+                  <button type="button" onClick={() => onOpenCourse(featured)}>继续学习</button>
+                  <button type="button" className="portal-secondary-button" onClick={onLogout} disabled={authLoading}>退出登录</button>
+                </>
+              ) : (
+                <>
+                  <div className="portal-login-tabs" role="group" aria-label="登录模式">
+                    <button type="button" className={loginMode === 'login' ? 'active' : ''} onClick={() => onLoginModeChange('login')}>登录</button>
+                    <button type="button" className={loginMode === 'register' ? 'active' : ''} onClick={() => onLoginModeChange('register')}>注册</button>
+                  </div>
+                  <label>
+                    <span>账号</span>
+                    <input name="portal-username" value={loginUsername} onChange={(event) => onUsernameChange(event.target.value)} placeholder="请输入用户名或邮箱" autoComplete="username" />
+                  </label>
+                  <label>
+                    <span>密码</span>
+                    <input value={loginPassword} onChange={(event) => onPasswordChange(event.target.value)} placeholder="请输入密码" type="password" autoComplete={loginMode === 'register' ? 'new-password' : 'current-password'} />
+                  </label>
+                  <button type="submit" disabled={authLoading}>
+                    {authLoading ? '处理中...' : loginMode === 'register' ? '注册' : '登录'}
+                  </button>
+                </>
+              )}
+              <p>{loginStatus}</p>
+            </form>
+          </div>
         </section>
 
         <section className="portal-section" ref={coursesRef}>
@@ -1851,6 +2063,94 @@ function CoursePortal({
         </section>
       </main>
     </div>
+  )
+}
+
+function PortalDigitalHuman({
+  authUser,
+  onFocusLogin,
+  onShowCourses,
+  onOpenFeatured,
+}: {
+  authUser: string
+  onFocusLogin: () => void
+  onShowCourses: () => void
+  onOpenFeatured: () => void
+}) {
+  const { speaking, source, speak, stop } = useSparkTTS()
+  const [imageReady, setImageReady] = useState(true)
+  const [assistantGender, setAssistantGender] = useState<'male' | 'female'>('male')
+  const assistantImage =
+    assistantGender === 'male'
+      ? '/assets/eduhive-portal-assistant-cutout.png'
+      : '/assets/eduhive-portal-assistant-female-cutout.png'
+  const assistantVoice = assistantGender === 'male' ? 'aisjiuxu' : 'aisjinger'
+  const guideText = authUser
+    ? `欢迎回来，${authUser}。我可以帮你继续学习推荐课程，也可以带你查看课程列表，选择下一门适合当前阶段的课程。`
+    : '欢迎来到智学蜂巢课程广场。我可以帮你筛选课程、说明学习路径，并在登录后同步你的学习记录与课程进度。'
+
+  const toggleGuideVoice = () => {
+    if (speaking) {
+      stop()
+      return
+    }
+    console.log('[EduHive digital human voice]', {
+      scope: 'course-portal',
+      assistant: assistantGender === 'male' ? '小蜂导学助教' : '小蜂导学学姐',
+      gender: assistantGender,
+      voice: assistantVoice,
+      source,
+    })
+    speak(guideText, 50, assistantGender, assistantVoice)
+  }
+
+  const changeAssistantGender = (gender: 'male' | 'female') => {
+    if (speaking) stop()
+    setAssistantGender(gender)
+    setImageReady(true)
+  }
+
+  return (
+    <section className="portal-digital-human-card" aria-label="数字人导学">
+      <div className="portal-digital-human-portrait">
+        {imageReady ? (
+          <img
+            src={assistantImage}
+            alt={assistantGender === 'male' ? '智学蜂巢男数字人导学助教' : '智学蜂巢女数字人导学助教'}
+            draggable={false}
+            onError={() => setImageReady(false)}
+          />
+        ) : (
+          <div className="portal-digital-human-fallback" aria-hidden="true">
+            <span className="fallback-head" />
+            <span className="fallback-body" />
+            <span className="fallback-core"><Bot className="h-5 w-5" /></span>
+          </div>
+        )}
+        <i className={cn(speaking && 'active')} />
+      </div>
+      <div className="portal-digital-human-panel">
+        <div className="portal-digital-human-title">
+          <span><Sparkles className="h-3.5 w-3.5" /> 数字人导学</span>
+          <em>{source === 'iflytek' ? '讯飞语音在线' : source === 'browser' ? '浏览器语音' : '语音检测中'}</em>
+        </div>
+        <strong>{authUser ? '我已准备好帮你继续学习' : `你好，我是${assistantGender === 'male' ? '小蜂导学助教' : '小蜂导学学姐'}`}</strong>
+        <p>{authUser ? '根据你的账户状态，我可以直接带你回到推荐课程，也可以重新筛选课程。' : '先选择课程，再进入对应学习工作台；登录后可以保留进度和学习记录。'}</p>
+        <div className="portal-digital-human-actions">
+          <button type="button" onClick={toggleGuideVoice} className={cn(speaking && 'active')}>
+            <Volume2 className="h-3.5 w-3.5" /> {speaking ? '停止导学' : '听导学'}
+          </button>
+          <button type="button" onClick={onShowCourses}>找课程</button>
+          <button type="button" onClick={onFocusLogin}>{authUser ? '账户' : '登录'}</button>
+          <button type="button" onClick={onOpenFeatured}>继续学习</button>
+        </div>
+        <div className="portal-voice-toggle" role="group" aria-label="数字人形象">
+          <span>形象</span>
+          <button type="button" className={assistantGender === 'male' ? 'active' : ''} onClick={() => changeAssistantGender('male')}>男生</button>
+          <button type="button" className={assistantGender === 'female' ? 'active' : ''} onClick={() => changeAssistantGender('female')}>女生</button>
+        </div>
+      </div>
+    </section>
   )
 }
 
@@ -2267,7 +2567,11 @@ function ChatCommand({
   const messagesRef = useRef<HTMLDivElement | null>(null)
   const voiceRecognitionRef = useRef<any | null>(null)
   const [voiceStatus, setVoiceStatus] = useState<'idle' | 'listening' | 'unsupported'>('idle')
+  const [defaultPromptCleared, setDefaultPromptCleared] = useState(false)
   const defaultPrompt = `我想学习 ${targetConcept}`
+  const isDefaultPromptText = (value: string) => /^我想学习\s+/.test(value.trim())
+  const inputText = input.trim()
+  const sendDisabled = loading || !inputText
 
   useEffect(() => {
     messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight, behavior: 'smooth' })
@@ -2280,17 +2584,29 @@ function ChatCommand({
     }
   }, [])
 
+  useEffect(() => {
+    if (!defaultPromptCleared && isDefaultPromptText(input)) {
+      setInput(defaultPrompt)
+    }
+  }, [defaultPrompt, defaultPromptCleared])
+
   const handleInputFocus = () => {
-    if (input.trim() === defaultPrompt) setInput('')
+    if (isDefaultPromptText(input)) {
+      setDefaultPromptCleared(true)
+      setInput('')
+    }
   }
 
   const handleInputBlur = () => {
-    if (!input.trim()) setInput(defaultPrompt)
+    if (!input.trim()) {
+      setInput(defaultPrompt)
+      setDefaultPromptCleared(false)
+    }
   }
 
   const handleSend = () => {
-    if (loading) return
-    onSend(input.trim() || defaultPrompt)
+    if (sendDisabled) return
+    onSend(inputText)
   }
 
   const toggleVoiceInput = () => {
@@ -2323,7 +2639,8 @@ function ChatCommand({
     recognition.onresult = (event: any) => {
       const transcript = String(event.results?.[0]?.[0]?.transcript || '').trim()
       if (transcript) {
-        const current = input.trim() === defaultPrompt ? '' : input.trim()
+        const current = isDefaultPromptText(input) ? '' : input.trim()
+        setDefaultPromptCleared(false)
         setInput(current ? `${current} ${transcript}` : transcript)
       }
     }
@@ -2392,7 +2709,10 @@ function ChatCommand({
               <button
                 type="button"
                 key={text}
-                onClick={() => setInput(text)}
+                onClick={() => {
+                  setDefaultPromptCleared(false)
+                  setInput(text)
+                }}
               >
                 {text}
               </button>
@@ -2403,9 +2723,13 @@ function ChatCommand({
               value={input}
               onFocus={handleInputFocus}
               onBlur={handleInputBlur}
-              onChange={(event) => setInput(event.target.value)}
+              onChange={(event) => {
+                const value = event.target.value
+                setInput(value)
+                setDefaultPromptCleared(!value.trim())
+              }}
               onKeyDown={(event) => {
-                if (event.key === 'Enter' && !event.nativeEvent.isComposing) handleSend()
+                if (event.key === 'Enter' && !event.nativeEvent.isComposing && !sendDisabled) handleSend()
               }}
               className="min-w-0 flex-1 bg-transparent px-3 text-sm text-slate-900 outline-none placeholder:text-slate-400"
               placeholder="输入你的问题，例如：为什么 open 要写 encoding？"
@@ -2419,7 +2743,7 @@ function ChatCommand({
             >
               <Mic className="h-4 w-4" />
             </button>
-            <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={handleSend} disabled={loading} className="send-button">
+            <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={handleSend} disabled={sendDisabled} className="send-button">
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4 fill-current" />}
             </button>
           </div>

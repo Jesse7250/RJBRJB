@@ -1,12 +1,20 @@
-"""讯飞在线语音合成客户端
+"""iFlytek online TTS client.
 
-使用 REST API (api.xfyun.cn/v1/service/v1/tts)
-鉴权：X-Appid + X-CurTime + X-Param + X-CheckSum(MD5)
+This client uses the classic iFlytek REST TTS endpoint:
+https://api.xfyun.cn/v1/service/v1/tts
+
+The important detail is that the text payload must be base64 encoded and sent
+as a form field named ``text``. Sending raw UTF-8 bytes makes the service return
+an error JSON instead of audio.
 """
+
+from __future__ import annotations
+
 import base64
 import hashlib
 import json
 import time
+from dataclasses import dataclass
 from typing import Optional
 
 import requests
@@ -14,42 +22,59 @@ import requests
 from app.core.config import get_settings
 
 
+@dataclass
+class TTSResult:
+    audio: Optional[bytes]
+    error: str = ""
+    provider: str = "iflytek-rest"
+
+
 class SparkTTSClient:
-    """讯飞 TTS — REST API"""
+    """iFlytek TTS REST client."""
 
     DEFAULT_VCN = "xiaoyan"
+    ENDPOINT = "https://api.xfyun.cn/v1/service/v1/tts"
 
     def __init__(self):
-        s = get_settings()
-        self.app_id = s.SPARK_TTS_APP_ID
-        self.api_key = s.SPARK_TTS_API_KEY
-        self.api_secret = s.SPARK_TTS_API_SECRET  # 未使用，保留兼容
+        settings = get_settings()
+        self.app_id = settings.SPARK_TTS_APP_ID
+        self.api_key = settings.SPARK_TTS_API_KEY
+        self.api_secret = settings.SPARK_TTS_API_SECRET
 
     @property
     def available(self) -> bool:
         return bool(self.app_id and self.api_key)
 
-    def synthesize(self, text: str, vcn: str = DEFAULT_VCN, speed: int = 50) -> Optional[bytes]:
-        if not self.available or not text.strip():
-            return None
+    def synthesize(self, text: str, vcn: str = DEFAULT_VCN, speed: int = 50) -> TTSResult:
+        clean_text = text.strip()
+        if not clean_text:
+            return TTSResult(None, "empty text")
+        if not self.available:
+            return TTSResult(None, "SPARK_TTS_APP_ID or SPARK_TTS_API_KEY is missing")
 
+        speed = max(0, min(100, int(speed)))
         param = {
             "auf": "audio/L16;rate=16000",
             "aue": "lame",
             "voice_name": vcn,
             "speed": str(speed),
-            "volume": "50",
+            "volume": "60",
             "pitch": "50",
             "engine_type": "intp65",
             "text_type": "text",
         }
-        x_param = base64.b64encode(json.dumps(param).encode()).decode()
+        x_param = base64.b64encode(
+            json.dumps(param, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        ).decode("utf-8")
         cur_time = str(int(time.time()))
-        x_checksum = hashlib.md5((self.api_key + cur_time + x_param).encode()).hexdigest()
+        x_checksum = hashlib.md5(
+            (self.api_key + cur_time + x_param).encode("utf-8")
+        ).hexdigest()
+        encoded_text = base64.b64encode(clean_text.encode("utf-8")).decode("utf-8")
 
         try:
-            r = requests.post(
-                "https://api.xfyun.cn/v1/service/v1/tts",
+            response = requests.post(
+                self.ENDPOINT,
                 headers={
                     "Content-Type": "application/x-www-form-urlencoded; charset=utf-8",
                     "X-Appid": self.app_id,
@@ -57,29 +82,32 @@ class SparkTTSClient:
                     "X-Param": x_param,
                     "X-CheckSum": x_checksum,
                 },
-                data=text.encode("utf-8"),
+                data={"text": encoded_text},
                 timeout=30,
             )
-            if r.status_code != 200:
-                print(f"[SparkTTS] HTTP {r.status_code}: {r.text[:200]}")
-                return None
-            ct = r.headers.get("Content-Type", "")
-            if "audio" in ct and len(r.content) > 500:
-                return r.content
-            if r.content and r.content[0:1] == b"{" and len(r.content) < 500:
-                try:
-                    err = r.json()
-                    print(f"[SparkTTS] error: {err}")
-                except Exception:
-                    pass
-                return None
-            if len(r.content) > 500:
-                return r.content
-            print(f"[SparkTTS] unexpected ({len(r.content)}B): {r.text[:200]}")
-            return None
-        except Exception as e:
-            print(f"[SparkTTS] failed: {e}")
-            return None
+        except requests.RequestException as exc:
+            return TTSResult(None, f"request failed: {exc}")
+
+        content_type = response.headers.get("Content-Type", "")
+        if response.status_code != 200:
+            return TTSResult(None, f"HTTP {response.status_code}: {response.text[:300]}")
+
+        if "audio" in content_type and len(response.content) > 256:
+            return TTSResult(response.content)
+
+        try:
+            payload = response.json()
+            code = payload.get("code")
+            message = payload.get("desc") or payload.get("message") or str(payload)
+            return TTSResult(None, f"iFlytek error {code}: {message}")
+        except ValueError:
+            pass
+
+        if len(response.content) > 256:
+            return TTSResult(response.content)
+
+        preview = response.text[:300] if response.text else "<empty response>"
+        return TTSResult(None, f"unexpected response: {preview}")
 
 
 _tts_client: Optional[SparkTTSClient] = None

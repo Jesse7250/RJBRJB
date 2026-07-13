@@ -1,363 +1,496 @@
-/**
- * 全局浮动数字人助教
- * - 始终浮在右下角，可拖动，所有页面可见
- * - 收起：圆形头像 + 呼吸动画
- * - 展开：引导面板 + 对话问答 + TTS 朗读 + 语音输入
- * - 表情系统：根据 AI 回答内容自动切换开心/思考/疑惑/鼓励
- * - 全屏模式：点击放大到屏幕中央沉浸式交互
- * - 定时提醒：每 30 分钟弹出休息提示
- */
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { Expand, Loader2, Maximize2, Mic, MicOff, Minimize2, Send, Volume2, VolumeX, X } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { AnimatePresence, motion, useDragControls, useMotionValue, type PanInfo } from 'framer-motion'
+import {
+  Loader2,
+  Maximize2,
+  MessageCircle,
+  Mic,
+  MicOff,
+  Minimize2,
+  Send,
+  Sparkles,
+  Volume2,
+  VolumeX,
+  X,
+} from 'lucide-react'
+
 import { cn } from '@/lib/utils'
 import { assistantApi } from '@/services/api'
 import { useSparkTTS } from '@/components/digital-human/useSparkTTS'
 import { useSpeechRecognition } from '@/components/digital-human/useSpeechRecognition'
 import type { NavKey } from '@/components/command-center/types'
 
-interface Props { activeNav: NavKey; selectedConcept: string }
-interface ChatMsg { role: 'user' | 'assistant'; text: string }
-
-type Expression = 'idle' | 'happy' | 'thinking' | 'confused' | 'encourage'
-
-const GUIDANCE: Record<NavKey, { title: string; text: string }> = {
-  profile: { title: '学习画像', text: '这里展示你的专属学习画像，包括知识水平、认知风格、学习节奏和目标导向。' },
-  graph: { title: '知识图谱', text: '这是Python知识图谱，每个六边形节点代表一个知识点。节点之间的连线代表前置依赖关系。' },
-  resources: { title: '学习资源', text: '在这里你可以生成和查看个性化学习资源。支持文字型、视觉型、听觉型三种模式。' },
-  chat: { title: '对话辅导', text: '这是苏格拉底式对话区，你可以随时向AI导师提问。' },
-  code: { title: '代码沙箱', text: '代码沙箱让你可以直接在浏览器里编写和运行Python代码。' },
-  progress: { title: '学习评估', text: '掌握度热力图直观展示你对各个知识点的掌握情况。颜色越绿表示掌握越好。' },
+interface Props {
+  activeNav: NavKey
+  selectedConcept: string
 }
 
-/** 根据文本内容检测表情 */
-function detectExpression(text: string): Expression {
-  const t = text.toLowerCase()
-  if (/恭喜|正确|通过|很好|太棒|厉害|优秀|完美|不错/.test(t)) return 'happy'
-  if (/思考|分析|等等|让我想|考虑/.test(t)) return 'thinking'
-  if (/抱歉|不确定|不清楚|无法|可惜|遗憾|暂时/.test(t)) return 'confused'
-  if (/加油|试试|练习|努力|坚持|相信|你能|别担心/.test(t)) return 'encourage'
-  return 'idle'
+interface ChatMsg {
+  role: 'user' | 'assistant'
+  text: string
 }
 
-/** 表情对应的 SVG 嘴部路径 */
-const MOUTH_PATHS: Record<Expression, { d: string; eyeR?: number }> = {
-  idle: { d: 'M28 30 Q32 34 36 30' },
-  happy: { d: 'M26 28 Q32 36 38 28' },
-  thinking: { d: 'M30 31 L34 31', eyeR: 1.2 },
-  confused: { d: 'M29 32 Q32 29 35 32' },
-  encourage: { d: 'M27 31 Q32 35 37 28' },
+type AssistantGender = 'male' | 'female'
+type PanelSide = 'left' | 'right'
+type PanelVertical = 'top' | 'bottom'
+type DockSide = 'left' | 'right'
+
+const ASSISTANT_META: Record<AssistantGender, { name: string; image: string; voice: string; label: string }> = {
+  male: {
+    name: '小蜂导学助教',
+    image: '/assets/eduhive-portal-assistant-cutout.png',
+    voice: 'aisjiuxu',
+    label: '男生',
+  },
+  female: {
+    name: '小蜂导学学姐',
+    image: '/assets/eduhive-portal-assistant-female-cutout.png',
+    voice: 'aisjinger',
+    label: '女生',
+  },
 }
 
-/** 气泡提示池 */
-const TIPS = [
-  '💡 试试点击麦克风用语音提问',
-  '📖 切换到视觉型可以看B站教学视频',
-  '👂 切换到听觉型让数字人为你朗读',
-  '🗺️ 在知识图谱里点击节点规划学习路径',
-  '💻 把练习题代码发送到沙箱调试',
-  '📊 看看掌握度热力图找到薄弱知识点',
+const GUIDANCE: Record<NavKey, { title: string; text: string; quick: string[] }> = {
+  profile: {
+    title: '学习画像',
+    text: '这里汇总你的知识水平、学习节奏、认知偏好和当前目标。你可以让我解释画像含义，或帮你判断下一步该补哪一块。',
+    quick: ['我的画像说明了什么？', '我下一步该学什么？', '怎么提升当前目标？'],
+  },
+  graph: {
+    title: '知识图谱',
+    text: '这里展示课程知识点之间的依赖关系。你可以让我解释某个节点、规划到目标节点的路径，或说明路径为什么这样安排。',
+    quick: ['解释当前节点', '帮我规划学习路径', '路径上的重点是什么？'],
+  },
+  resources: {
+    title: '学习资源',
+    text: '这里可以查看讲义、导图、练习、案例和审核报告。你可以让我用更容易理解的方式解释资源内容。',
+    quick: ['总结当前讲义', '练习题怎么做？', '给我一个学习建议'],
+  },
+  chat: {
+    title: '学习对话',
+    text: '这里适合提问、追问和进行苏格拉底式引导。你可以先描述卡住的地方，我会尽量引导你自己找到答案。',
+    quick: ['请引导我思考', '我哪里理解错了？', '换个例子讲讲'],
+  },
+  code: {
+    title: '代码沙箱',
+    text: '这里可以运行 Python 代码并查看输出与变量。你可以把报错或思路发给我，我会帮你定位问题。',
+    quick: ['解释这段代码', '为什么运行报错？', '给我一个调试步骤'],
+  },
+  progress: {
+    title: '掌握进度',
+    text: '这里展示知识点掌握度、热力图和 BKT 分析。你可以让我解释薄弱点，或生成复习顺序。',
+    quick: ['解释掌握度', '我的薄弱点在哪？', '生成复习顺序'],
+  },
+}
+
+const FALLBACK_TIPS = [
+  '可以把当前卡住的问题直接发给我。',
+  '也可以让我解释当前页面里的按钮和数据含义。',
+  '如果内容太难，我可以换一种更具体的例子讲。',
 ]
 
 export function FloatingAssistant({ activeNav, selectedConcept }: Props) {
-  const { speaking, speak: ttsSpeak, stop: ttsStop } = useSparkTTS()
+  const { speaking, source, sparkAvailable, lastError, speak: ttsSpeak, stop: ttsStop } = useSparkTTS()
   const { listening, supported: micSupported, start: startListen, stop: stopListen } = useSpeechRecognition('zh-CN')
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(true)
   const [fullscreen, setFullscreen] = useState(false)
-  const [hasInteracted, setHasInteracted] = useState(false)
   const [dragged, setDragged] = useState(false)
-  const dragStartRef = useRef({ x: 0, y: 0 })
+  const [docked, setDocked] = useState(true)
+  const [dockSide, setDockSide] = useState<DockSide>('right')
+  const [panelSide, setPanelSide] = useState<PanelSide>('left')
+  const [panelVertical, setPanelVertical] = useState<PanelVertical>('top')
+  const [assistantGender, setAssistantGender] = useState<AssistantGender>('female')
   const [chatMessages, setChatMessages] = useState<ChatMsg[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
-  const chatEndRef = useRef<HTMLDivElement>(null)
-
-  // 表情
-  const lastAssistantMsg = [...chatMessages].reverse().find((m) => m.role === 'assistant')
-  const expression = lastAssistantMsg ? detectExpression(lastAssistantMsg.text) : 'idle'
-
-  // 定时提醒
   const [sessionMinutes, setSessionMinutes] = useState(0)
   const [showReminder, setShowReminder] = useState(false)
-  useEffect(() => {
-    const t = setInterval(() => setSessionMinutes((m) => m + 1), 60000)
-    return () => clearInterval(t)
+  const [showTip, setShowTip] = useState(false)
+  const [tipIndex, setTipIndex] = useState(0)
+  const shellRef = useRef<HTMLDivElement>(null)
+  const chatEndRef = useRef<HTMLDivElement>(null)
+  const dragStartRef = useRef({ x: 0, y: 0 })
+  const dragX = useMotionValue(0)
+  const dragY = useMotionValue(0)
+  const dragControls = useDragControls()
+
+  const assistant = ASSISTANT_META[assistantGender]
+  const guidance = GUIDANCE[activeNav] || GUIDANCE.resources
+  const targetLabel = selectedConcept || '当前学习目标'
+  const guideText = `你现在位于${guidance.title}页面，当前关注的是${targetLabel}。${guidance.text}`
+
+  const scrollChatToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    requestAnimationFrame(() => {
+      chatEndRef.current?.scrollIntoView({ behavior, block: 'end' })
+    })
   }, [])
+
+  const updatePanelPlacement = useCallback(() => {
+    const rect = shellRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const centerX = rect.left + rect.width / 2
+    const centerY = rect.top + rect.height / 2
+    setPanelSide(centerX < window.innerWidth / 2 ? 'right' : 'left')
+    setPanelVertical(centerY > window.innerHeight / 2 ? 'bottom' : 'top')
+  }, [])
+
+  useEffect(() => {
+    const timer = setInterval(() => setSessionMinutes((minutes) => minutes + 1), 60000)
+    return () => clearInterval(timer)
+  }, [])
+
   useEffect(() => {
     if (sessionMinutes > 0 && sessionMinutes % 30 === 0) setShowReminder(true)
   }, [sessionMinutes])
 
-  // 气泡提示
-  const [tipIndex, setTipIndex] = useState(0)
-  const [showTip, setShowTip] = useState(false)
   useEffect(() => {
-    const t = setInterval(() => {
-      if (!expanded) { setShowTip(true); setTipIndex((i) => (i + 1) % TIPS.length) }
-      setTimeout(() => setShowTip(false), 5000)
+    const timer = setInterval(() => {
+      if (!expanded) {
+        setTipIndex((index) => (index + 1) % FALLBACK_TIPS.length)
+        setShowTip(true)
+        window.setTimeout(() => setShowTip(false), 5000)
+      }
     }, 60000)
-    return () => clearInterval(t)
+    return () => clearInterval(timer)
   }, [expanded])
 
-  const guidance = GUIDANCE[activeNav] || GUIDANCE.resources
-  const guidanceText = `你现在在${guidance.title}页面。${guidance.text}`
+  useEffect(() => {
+    const frame = requestAnimationFrame(updatePanelPlacement)
+    return () => cancelAnimationFrame(frame)
+  }, [updatePanelPlacement])
 
   useEffect(() => {
-    const t = setTimeout(() => { if (!hasInteracted) { setExpanded(true); setHasInteracted(true) } }, 3000)
-    return () => clearTimeout(t)
-  }, [hasInteracted])
+    if (!expanded) return
+    const handleResize = () => updatePanelPlacement()
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [expanded, updatePanelPlacement])
 
-  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [chatMessages])
+  useEffect(() => {
+    if (!expanded || fullscreen) return
+    const handleOutsidePointerDown = (event: PointerEvent) => {
+      const target = event.target
+      if (target instanceof Node && shellRef.current?.contains(target)) return
+      setExpanded(false)
+    }
+    document.addEventListener('pointerdown', handleOutsidePointerDown)
+    return () => document.removeEventListener('pointerdown', handleOutsidePointerDown)
+  }, [expanded, fullscreen])
 
-  const handleSpeak = useCallback((text: string) => {
-    if (speaking) { ttsStop(); return }
-    ttsSpeak(text, 50)
-  }, [speaking, ttsSpeak, ttsStop])
+  useEffect(() => {
+    scrollChatToBottom('smooth')
+  }, [chatMessages, loading, scrollChatToBottom])
 
-  const handleVoiceResult = useCallback((voiceText: string) => {
-    setInput(voiceText)
-    setTimeout(async () => {
-      setChatMessages((prev) => [...prev, { role: 'user', text: voiceText }]); setLoading(true)
+  useEffect(() => {
+    if (!expanded) return
+    scrollChatToBottom('auto')
+  }, [expanded, fullscreen, scrollChatToBottom])
+
+  const speakText = useCallback(
+    (text: string) => {
+      if (speaking) {
+        ttsStop()
+        return
+      }
+      console.log('[EduHive digital human voice]', {
+        scope: 'floating-assistant',
+        assistant: assistant.name,
+        gender: assistantGender,
+        voice: assistant.voice,
+        source,
+        sparkAvailable,
+        lastError,
+      })
+      ttsSpeak(text, 50, assistantGender, assistant.voice)
+    },
+    [assistant.name, assistant.voice, assistantGender, lastError, source, sparkAvailable, speaking, ttsSpeak, ttsStop],
+  )
+
+  const sendQuestion = useCallback(
+    async (question?: string) => {
+      const q = (question ?? input).trim()
+      if (!q || loading) return
+      setInput('')
+      updatePanelPlacement()
+      setExpanded(true)
+      setChatMessages((prev) => [...prev, { role: 'user', text: q }])
+      setLoading(true)
       try {
-        const res = await assistantApi.ask(voiceText)
-        const answer = res.data?.answer || '抱歉，我暂时无法回答这个问题。'
+        const response = await assistantApi.ask(q)
+        const answer = response.data?.answer || '抱歉，我暂时无法回答这个问题。'
         setChatMessages((prev) => [...prev, { role: 'assistant', text: answer }])
-        ttsSpeak(answer, 50)
-      } catch { setChatMessages((prev) => [...prev, { role: 'assistant', text: '抱歉，助教服务暂时不可用。' }]) }
-      finally { setLoading(false) }
-    }, 100)
-  }, [ttsSpeak])
+      } catch {
+        setChatMessages((prev) => [...prev, { role: 'assistant', text: '抱歉，数字人助教服务暂时不可用。' }])
+      } finally {
+        setLoading(false)
+      }
+    },
+    [input, loading, updatePanelPlacement],
+  )
 
-  const toggleMic = () => { if (listening) { stopListen(); return }; startListen(handleVoiceResult) }
+  const handleVoiceResult = useCallback(
+    (voiceText: string) => {
+      setInput(voiceText)
+      void sendQuestion(voiceText)
+    },
+    [sendQuestion],
+  )
 
-  const sendQuestion = async () => {
-    const q = input.trim(); if (!q || loading) return
-    setInput(''); setChatMessages((prev) => [...prev, { role: 'user', text: q }]); setLoading(true)
-    try {
-      const res = await assistantApi.ask(q)
-      const answer = res.data?.answer || '抱歉，我暂时无法回答这个问题。'
-      setChatMessages((prev) => [...prev, { role: 'assistant', text: answer }])
-    } catch { setChatMessages((prev) => [...prev, { role: 'assistant', text: '抱歉，助教服务暂时不可用。' }]) }
-    finally { setLoading(false) }
+  const toggleMic = () => {
+    if (listening) {
+      stopListen()
+      return
+    }
+    startListen(handleVoiceResult)
   }
 
-  const handlePointerDown = (e: React.PointerEvent) => { dragStartRef.current = { x: e.clientX, y: e.clientY }; setDragged(false) }
-  const handlePointerUp = (e: React.PointerEvent) => {
-    if (Math.abs(e.clientX - dragStartRef.current.x) < 4 && Math.abs(e.clientY - dragStartRef.current.y) < 4 && !dragged) {
-      if (speaking) ttsStop()
-      setExpanded((v) => !v)
+  const changeGender = (gender: AssistantGender) => {
+    if (speaking) ttsStop()
+    setAssistantGender(gender)
+  }
+
+  const handleTriggerPointerDown = (event: React.PointerEvent) => {
+    dragStartRef.current = { x: event.clientX, y: event.clientY }
+    setDragged(false)
+    dragControls.start(event)
+  }
+
+  const handlePointerMove = (event: React.PointerEvent) => {
+    if (Math.abs(event.clientX - dragStartRef.current.x) > 3 || Math.abs(event.clientY - dragStartRef.current.y) > 3) {
+      setDragged(true)
     }
   }
-  const handlePointerMove = (e: React.PointerEvent) => {
-    if (Math.abs(e.clientX - dragStartRef.current.x) > 3 || Math.abs(e.clientY - dragStartRef.current.y) > 3) setDragged(true)
+
+  const resetDockedMotion = useCallback(() => {
+    dragX.set(0)
+    requestAnimationFrame(() => dragX.set(0))
+    window.setTimeout(() => dragX.set(0), 0)
+  }, [dragX])
+
+  const handleDragEnd = (_event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
+    const pointX = info.point.x
+    const shouldDockLeft = pointX < 92
+    const shouldDockRight = pointX > window.innerWidth - 92
+    const nextDocked = shouldDockLeft || shouldDockRight
+
+    setDocked(nextDocked)
+    if (shouldDockLeft) {
+      setDockSide('left')
+      resetDockedMotion()
+    } else if (shouldDockRight) {
+      setDockSide('right')
+      resetDockedMotion()
+    }
+
+    if (expanded) requestAnimationFrame(updatePanelPlacement)
   }
 
-  const eyeR = MOUTH_PATHS[expression].eyeR || 1.8
+  const handlePointerUp = (event: React.PointerEvent) => {
+    const moved = Math.abs(event.clientX - dragStartRef.current.x) > 4 || Math.abs(event.clientY - dragStartRef.current.y) > 4
+    if (!moved && !dragged) {
+      if (!expanded) updatePanelPlacement()
+      setExpanded((value) => {
+        const next = !value
+        if (next) scrollChatToBottom('auto')
+        return next
+      })
+    }
+  }
+
+  const quickQuestions = useMemo(() => guidance.quick, [guidance.quick])
 
   const panelContent = (
-    <motion.div
-      initial={{ opacity: 0, scale: 0.8, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.8, y: 20 }}
-      className={cn('rounded-2xl border border-amber-200/60 bg-white/95 shadow-2xl shadow-amber-500/10 backdrop-blur-md overflow-hidden flex flex-col',
-        fullscreen ? 'w-[420px] h-[600px]' : 'w-80')}
-      onPointerDown={(e) => e.stopPropagation()}>
-      {/* 标题栏 */}
-      <div className="flex items-center justify-between bg-gradient-to-r from-amber-50 to-orange-50 px-4 py-3 border-b border-amber-100 shrink-0">
-        <div className="flex items-center gap-2">
-          <span className="text-xl">{expression === 'happy' ? '😊' : expression === 'thinking' ? '🤔' : expression === 'confused' ? '😅' : expression === 'encourage' ? '💪' : '👩‍🏫'}</span>
-          <div>
-            <p className="text-xs font-bold text-amber-800">小蜂 · 数字人助教</p>
-            <p className="text-[10px] text-amber-600">
-              {expression === 'happy' ? '为你开心！' : expression === 'thinking' ? '正在思考...' : expression === 'confused' ? '嗯...' : expression === 'encourage' ? '加油！' : '有什么可以帮你的？'}
-            </p>
-          </div>
+    <motion.section
+      initial={{ opacity: 0, scale: 0.92, y: 16 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.92, y: 16 }}
+      className={cn('floating-assistant-panel', fullscreen && 'is-fullscreen')}
+      onPointerDown={(event) => event.stopPropagation()}
+      aria-label="数字人助教窗口"
+    >
+      <header className="floating-assistant-header">
+        <div className="floating-assistant-avatar">
+          <img className={`is-${assistantGender}`} src={assistant.image} alt={`${assistant.label}数字人助教`} draggable={false} />
+          <span className={cn(speaking && 'active')} />
         </div>
-        <div className="flex items-center gap-1">
-          <button onClick={() => setFullscreen((v) => !v)}
-            className="rounded-lg p-1 text-amber-400 hover:bg-amber-100 hover:text-amber-600 transition-colors"
-            title={fullscreen ? '退出全屏' : '全屏'}>
+        <div className="floating-assistant-title">
+          <span><Sparkles className="h-3.5 w-3.5" /> 数字人助教</span>
+          <strong>{assistant.name}</strong>
+          <small>{guidance.title} · {targetLabel}</small>
+        </div>
+        <div className="floating-assistant-window-actions">
+          <button type="button" onClick={() => setFullscreen((value) => !value)} title={fullscreen ? '退出大窗' : '放大窗口'}>
             {fullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
           </button>
-          <button onClick={() => { setExpanded(false); setFullscreen(false) }}
-            className="rounded-lg p-1 text-amber-400 hover:bg-amber-100 hover:text-amber-600 transition-colors">
+          <button type="button" onClick={() => { setExpanded(false); setFullscreen(false) }} title="收起数字人">
             <X className="h-4 w-4" />
           </button>
         </div>
+      </header>
+
+      <div className="floating-assistant-gender" role="group" aria-label="切换数字人形象">
+        {(Object.keys(ASSISTANT_META) as AssistantGender[]).map((gender) => (
+          <button
+            key={gender}
+            type="button"
+            className={assistantGender === gender ? 'active' : ''}
+            onClick={() => changeGender(gender)}
+          >
+            <img className={`is-${gender}`} src={ASSISTANT_META[gender].image} alt="" draggable={false} />
+            <span>{ASSISTANT_META[gender].label}</span>
+          </button>
+        ))}
       </div>
 
-      {/* 表情头像（全屏模式显示大号） */}
-      {fullscreen && (
-        <div className="flex justify-center py-4 shrink-0 bg-gradient-to-b from-amber-50/50 to-white">
-          <motion.div className="relative flex h-28 w-28 items-center justify-center rounded-full"
-            style={{ background: 'radial-gradient(circle at 40% 35%, #fef3c7 0%, #fde68a 40%, #fbbf24 100%)' }}
-            animate={speaking ? { scale: [1, 1.06, 0.98, 1.04, 1], boxShadow: ['0 0 20px rgba(251,191,36,0.3)', '0 0 50px rgba(251,191,36,0.6)', '0 0 30px rgba(251,191,36,0.4)', '0 0 55px rgba(251,191,36,0.5)', '0 0 20px rgba(251,191,36,0.3)'] } : { scale: [1, 1.02, 1], boxShadow: '0 0 15px rgba(251,191,36,0.15)' }}
-            transition={speaking ? { duration: 1.2, repeat: Infinity, ease: 'easeInOut' } : { duration: 4, repeat: Infinity, ease: 'easeInOut' }}>
-            <motion.div className="absolute rounded-full" style={{ width: 120, height: 120, border: '3px solid transparent', borderTopColor: 'rgba(251,191,36,0.5)', borderRightColor: 'rgba(245,158,11,0.3)' }}
-              animate={{ rotate: 360 }} transition={{ duration: speaking ? 2 : 10, repeat: Infinity, ease: 'linear' }} />
-            <svg viewBox="0 0 64 64" className="w-[72px] h-[72px] relative z-10" fill="none">
-              <circle cx="32" cy="24" r="12" fill="#fef7ed" stroke="#d4a853" strokeWidth="1.2" />
-              <path d="M20 24 Q20 12 32 12 Q44 12 44 24" fill="#5c4033" />
-              <rect x="27" y="21" width="4" height="3" rx="1" fill="none" stroke="#4a3728" strokeWidth="0.8" />
-              <rect x="33" y="21" width="4" height="3" rx="1" fill="none" stroke="#4a3728" strokeWidth="0.8" />
-              <line x1="31" y1="22.5" x2="33" y2="22.5" stroke="#4a3728" strokeWidth="0.6" />
-              <circle cx="29" cy="22.5" r={eyeR} fill="#1e293b" />
-              <circle cx="37" cy="22.5" r={eyeR} fill="#1e293b" />
-              <motion.path d={MOUTH_PATHS[expression].d} stroke="#c2410c" strokeWidth="1" fill="none" strokeLinecap="round"
-                animate={{ d: MOUTH_PATHS[expression].d }} transition={{ duration: 0.3 }} />
-              <path d="M24 40 L24 54 Q24 60 32 60 Q40 60 40 54 L40 40" fill="#e0e7ff" stroke="#6366f1" strokeWidth="1" />
-              <path d="M30 40 L32 46 L34 40" fill="#4f46e5" />
-            </svg>
-          </motion.div>
-        </div>
-      )}
+      <div className="floating-assistant-guide">
+        <p>{guidance.text}</p>
+        <button type="button" onClick={() => speakText(guideText)}>
+          {speaking ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+          {speaking ? '停止朗读' : '朗读当前页引导'}
+        </button>
+      </div>
 
-      {/* 对话区 */}
-      <div className={cn('overflow-y-auto px-4 py-3 space-y-3', fullscreen ? 'flex-1' : 'max-h-48')}>
+      <div className="floating-assistant-chat">
         {chatMessages.length === 0 && (
-          <div className="rounded-xl bg-amber-50 p-3">
-            <p className="text-xs leading-relaxed text-amber-800">{guidance.text}</p>
-            <p className="mt-2 text-[10px] text-amber-500">当前页面：{guidance.title}</p>
-            <button onClick={() => handleSpeak(guidanceText)}
-              className="mt-2 flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-bold bg-amber-200 text-amber-700 hover:bg-amber-300 transition-colors">
-              <Volume2 className="h-3 w-3" />听引导语音
-            </button>
+          <div className="floating-assistant-empty">
+            <MessageCircle className="h-4 w-4" />
+            <span>你可以问我当前页面怎么用，也可以直接描述学习中卡住的地方。</span>
           </div>
         )}
-        {chatMessages.map((msg, i) => (
-          <div key={i} className={cn('flex', msg.role === 'user' ? 'justify-end' : 'justify-start')}>
-            <div className={cn('max-w-[85%] rounded-xl px-3 py-2 text-xs leading-relaxed',
-              msg.role === 'user' ? 'bg-indigo-500 text-white' : 'bg-slate-100 text-slate-700')}>
-              {msg.text}
-              {msg.role === 'assistant' && (
-                <button onClick={() => handleSpeak(msg.text)} className="ml-2 inline-flex align-middle text-amber-500 hover:text-amber-700">
-                  {speaking ? <VolumeX className="h-3 w-3" /> : <Volume2 className="h-3 w-3" />}
-                </button>
-              )}
-            </div>
+        {chatMessages.map((message, index) => (
+          <div key={`${message.role}-${index}`} className={cn('floating-assistant-message', message.role)}>
+            <p>{message.text}</p>
+            {message.role === 'assistant' && (
+              <button type="button" onClick={() => speakText(message.text)} title="朗读这条回复">
+                {speaking ? <VolumeX className="h-3 w-3" /> : <Volume2 className="h-3 w-3" />}
+              </button>
+            )}
           </div>
         ))}
         {loading && (
-          <div className="flex justify-start">
-            <div className="rounded-xl bg-slate-100 px-3 py-2 text-xs text-slate-400 flex items-center gap-1.5">
-              <Loader2 className="h-3 w-3 animate-spin" />小蜂正在思考...
-            </div>
+          <div className="floating-assistant-thinking">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            <span>数字人正在思考...</span>
           </div>
         )}
         <div ref={chatEndRef} />
       </div>
 
-      {/* 定时提醒 */}
       {showReminder && (
-        <div className="mx-4 mb-2 rounded-xl bg-amber-100 p-3 flex items-start gap-2">
-          <span className="text-lg">⏰</span>
-          <div className="flex-1">
-            <p className="text-xs font-bold text-amber-800">学习提醒</p>
-            <p className="text-[11px] text-amber-700">你已经学习 {sessionMinutes} 分钟了，休息一下眼睛吧！起来走走或者看看远处~</p>
+        <div className="floating-assistant-reminder">
+          <div>
+            <strong>学习提醒</strong>
+            <span>你已经学习 {sessionMinutes} 分钟，可以短暂休息后再继续。</span>
           </div>
-          <button onClick={() => setShowReminder(false)} className="text-amber-400 hover:text-amber-600"><X className="h-3 w-3" /></button>
+          <button type="button" onClick={() => setShowReminder(false)}><X className="h-3.5 w-3.5" /></button>
         </div>
       )}
 
-      {/* 输入区 */}
-      <div className="flex items-center gap-2 border-t border-slate-100 px-3 py-2.5 shrink-0">
+      <div className="floating-assistant-input">
         {listening ? (
-          <div className="flex-1 flex items-center gap-2 rounded-lg border-2 border-red-300 bg-red-50 px-3 py-1.5">
-            <span className="relative flex h-2.5 w-2.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
-            </span>
-            <span className="text-xs text-red-600 font-medium">正在聆听...</span>
+          <div className="floating-assistant-listening">
+            <i />
+            <span>正在聆听...</span>
           </div>
         ) : (
-          <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && sendQuestion()}
-            placeholder={micSupported ? '打字或点麦克风说话...' : '问小蜂任何问题...'}
-            className="flex-1 rounded-lg border border-slate-200 px-3 py-1.5 text-xs outline-none focus:border-amber-300 transition-colors" />
+          <input
+            value={input}
+            onChange={(event) => setInput(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') void sendQuestion()
+            }}
+            placeholder={micSupported ? '打字或点麦克风提问...' : '问数字人助教任何问题...'}
+          />
         )}
         {micSupported && (
-          <button onClick={toggleMic}
-            className={cn('rounded-lg p-1.5 text-white transition-all', listening ? 'bg-red-500 hover:bg-red-600 animate-pulse' : 'bg-indigo-400 hover:bg-indigo-500')}>
-            {listening ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
+          <button type="button" className={cn('mic', listening && 'active')} onClick={toggleMic} title={listening ? '停止语音输入' : '语音输入'}>
+            {listening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
           </button>
         )}
-        <button onClick={sendQuestion} disabled={loading || !input.trim()}
-          className="rounded-lg bg-amber-500 p-1.5 text-white hover:bg-amber-600 disabled:opacity-40 transition-all">
-          <Send className="h-3.5 w-3.5" />
+        <button type="button" className="send" disabled={loading || !input.trim()} onClick={() => void sendQuestion()} title="发送">
+          <Send className="h-4 w-4" />
         </button>
       </div>
 
-      {/* 快捷提问 */}
-      <div className="flex flex-wrap gap-1.5 px-3 pb-3 shrink-0">
-        {['怎么切换学习风格？', '代码沙箱怎么用？', '如何查看掌握度？'].map((q) => (
-          <button key={q} onClick={() => { setInput(q); setTimeout(sendQuestion, 50) }}
-            className="rounded-full border border-slate-200 px-2 py-0.5 text-[10px] text-slate-500 hover:border-amber-300 hover:text-amber-700 transition-colors">{q}</button>
+      <div className="floating-assistant-quick">
+        {quickQuestions.map((question) => (
+          <button key={question} type="button" onClick={() => void sendQuestion(question)}>
+            {question}
+          </button>
         ))}
       </div>
-    </motion.div>
+    </motion.section>
   )
 
   return (
     <>
-      {/* 全屏遮罩 */}
       <AnimatePresence>
         {fullscreen && (
           <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[9998] bg-black/40 backdrop-blur-sm flex items-center justify-center"
-            onClick={() => setFullscreen(false)}>
-            <div onClick={(e) => e.stopPropagation()} className="pointer-events-auto">
-              {panelContent}
-            </div>
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="floating-assistant-backdrop"
+            onClick={() => setFullscreen(false)}
+          >
+            <div onClick={(event) => event.stopPropagation()}>{panelContent}</div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* 正常浮动模式 */}
       {!fullscreen && (
-        <motion.div drag dragMomentum={false} dragElastic={0}
-          onPointerDown={handlePointerDown} onPointerUp={handlePointerUp} onPointerMove={handlePointerMove}
-          className="fixed right-5 bottom-5 z-[9997] flex flex-col items-end gap-2" style={{ touchAction: 'none' }}>
-          {/* 气泡提示 */}
+        <motion.div
+          ref={shellRef}
+          drag
+          dragListener={false}
+          dragControls={dragControls}
+          dragElastic={0}
+          dragMomentum={false}
+          onDragEnd={handleDragEnd}
+          className={cn(
+            'floating-assistant-shell',
+            docked ? 'is-docked' : 'is-floating',
+            `dock-${dockSide}`,
+            expanded && 'is-expanded',
+            `panel-${panelSide}`,
+            `align-${panelVertical}`,
+          )}
+          style={{ x: dragX, y: dragY, touchAction: 'none' }}
+        >
           <AnimatePresence>
             {showTip && !expanded && (
-              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }}
-                className="bg-white/95 backdrop-blur-sm rounded-2xl border border-amber-200/60 shadow-lg px-4 py-2.5 max-w-[220px]"
-                onPointerDown={(e) => e.stopPropagation()}>
-                <p className="text-[11px] leading-relaxed text-slate-600">{TIPS[tipIndex]}</p>
+              <motion.div
+                initial={{ opacity: 0, x: 12 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 12 }}
+                className="floating-assistant-tip"
+                onPointerDown={(event) => event.stopPropagation()}
+              >
+                {FALLBACK_TIPS[tipIndex]}
               </motion.div>
             )}
           </AnimatePresence>
 
-          {/* 展开面板 */}
           <AnimatePresence>
-            {expanded && (
-              <div className="pointer-events-auto">{panelContent}</div>
-            )}
+            {expanded && <div className="floating-assistant-popover">{panelContent}</div>}
           </AnimatePresence>
 
-          {/* 浮动头像 */}
-          <div className={cn('relative flex h-16 w-16 items-center justify-center rounded-full shadow-xl border-2 cursor-grab active:cursor-grabbing',
-            speaking ? 'border-emerald-400 shadow-emerald-400/30' : 'border-amber-300/60 shadow-amber-500/20')}
-            style={{ background: 'radial-gradient(circle at 40% 35%, #fef3c7 0%, #fde68a 40%, #fbbf24 100%)' }}>
-            <motion.div className="absolute inset-0 flex items-center justify-center rounded-full pointer-events-none"
-              animate={speaking ? { scale: [1, 1.08, 0.96, 1.05, 1], boxShadow: ['0 0 20px rgba(251,191,36,0.3)', '0 0 40px rgba(16,185,129,0.5)', '0 0 25px rgba(251,191,36,0.4)', '0 0 45px rgba(16,185,129,0.4)', '0 0 20px rgba(251,191,36,0.3)'] } : { scale: [1, 1.03, 1], boxShadow: '0 0 18px rgba(251,191,36,0.2)' }}
-              transition={speaking ? { duration: 1, repeat: Infinity } : { duration: 3, repeat: Infinity }} />
-            <motion.div className="absolute inset-0 rounded-full pointer-events-none"
-              style={{ border: '2px solid transparent', borderTopColor: 'rgba(251,191,36,0.4)', borderRightColor: 'rgba(245,158,11,0.25)' }}
-              animate={{ rotate: 360 }} transition={{ duration: 6, repeat: Infinity, ease: 'linear' }} />
-            <svg viewBox="0 0 64 64" className="w-9 h-9 relative z-10 pointer-events-none" fill="none">
-              <circle cx="32" cy="24" r="12" fill="#fef7ed" stroke="#d4a853" strokeWidth="1.2" />
-              <path d="M20 24 Q20 12 32 12 Q44 12 44 24" fill="#5c4033" />
-              <rect x="27" y="21" width="4" height="3" rx="1" fill="none" stroke="#4a3728" strokeWidth="0.8" />
-              <rect x="33" y="21" width="4" height="3" rx="1" fill="none" stroke="#4a3728" strokeWidth="0.8" />
-              <line x1="31" y1="22.5" x2="33" y2="22.5" stroke="#4a3728" strokeWidth="0.6" />
-              <circle cx="29" cy="22.5" r={eyeR} fill="#1e293b" />
-              <circle cx="37" cy="22.5" r={eyeR} fill="#1e293b" />
-              <motion.path d={MOUTH_PATHS[expression].d} stroke="#c2410c" strokeWidth="1" fill="none" strokeLinecap="round"
-                animate={{ d: MOUTH_PATHS[expression].d }} transition={{ duration: 0.3 }} />
-              <path d="M24 40 L24 54 Q24 60 32 60 Q40 60 40 54 L40 40" fill="#e0e7ff" stroke="#6366f1" strokeWidth="1" />
-              <path d="M30 40 L32 46 L34 40" fill="#4f46e5" />
-            </svg>
-          </div>
-
-          {!expanded && <span className="text-[10px] text-slate-400 bg-white/80 px-2 py-0.5 rounded-full shadow-sm pointer-events-none select-none">按住拖动 · 点我提问</span>}
+          <button
+            type="button"
+            className={cn('floating-assistant-trigger', speaking && 'is-speaking')}
+            aria-label="打开数字人助教"
+            onPointerDown={handleTriggerPointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+          >
+            <span className="floating-assistant-trigger-image">
+              <img className={`is-${assistantGender}`} src={assistant.image} alt="" draggable={false} />
+            </span>
+            <span className="floating-assistant-trigger-copy">
+              <strong>小蜂导学</strong>
+              <small>点我提问</small>
+            </span>
+          </button>
         </motion.div>
       )}
     </>

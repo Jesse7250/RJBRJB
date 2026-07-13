@@ -46,12 +46,12 @@ class DeepSeekLLM:
     """DeepSeek 大模型封装"""
 
     # 默认使用 DeepSeek-V3， reasoning 任务可换 deepseek-reasoner
-    DEFAULT_MODEL = "deepseek-v4-flash"
+    DEFAULT_MODEL = "deepseek-v4-pro"
 
     def __init__(self, model: str | None = None):
         settings = get_settings()
         self.api_key = settings.DEEPSEEK_API_KEY
-        self.base_url = settings.DEEPSEEK_BASE_URL.rstrip("/")
+        self.base_url = (settings.ANTHROPIC_BASE_URL or settings.DEEPSEEK_BASE_URL).rstrip("/")
         self.model = model or settings.DEEPSEEK_MODEL or self.DEFAULT_MODEL
         self.timeout = 60.0
 
@@ -63,6 +63,70 @@ class DeepSeekLLM:
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
+
+    @property
+    def _uses_anthropic_api(self) -> bool:
+        return "/anthropic" in self.base_url.lower()
+
+    def _anthropic_headers(self) -> dict:
+        return {
+            "x-api-key": self.api_key,
+            "Authorization": f"Bearer {self.api_key}",
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json",
+        }
+
+    def _anthropic_messages_url(self) -> str:
+        return self.base_url if self.base_url.endswith("/messages") else f"{self.base_url}/v1/messages"
+
+    def _build_anthropic_payload(
+        self,
+        messages: List[DeepSeekMessage],
+        temperature: float,
+        max_tokens: int,
+    ) -> dict:
+        system_parts: list[str] = []
+        converted: list[dict] = []
+        for message in messages:
+            content = message.content or ""
+            if message.role == "system":
+                system_parts.append(content)
+                continue
+            role = "assistant" if message.role == "assistant" else "user"
+            if converted and converted[-1]["role"] == role:
+                converted[-1]["content"] += f"\n\n{content}"
+            else:
+                converted.append({"role": role, "content": content})
+
+        payload = {
+            "model": self.model,
+            "messages": converted or [{"role": "user", "content": ""}],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        if system_parts:
+            payload["system"] = "\n\n".join(system_parts)
+        return payload
+
+    @staticmethod
+    def _parse_anthropic_text(data: dict) -> str:
+        content = data.get("content", "")
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            text = "".join(
+                block.get("text", "")
+                for block in content
+                if isinstance(block, dict) and block.get("type") == "text"
+            )
+            if text:
+                return text
+            return "".join(
+                block.get("thinking", "")
+                for block in content
+                if isinstance(block, dict) and block.get("type") == "thinking"
+            )
+        return data.get("text", "") or data.get("message", "")
 
     def _build_payload(
         self,
@@ -102,6 +166,17 @@ class DeepSeekLLM:
         max_tokens: int = 4096,
     ) -> str:
         """同步非流式调用"""
+        if self._uses_anthropic_api:
+            payload = self._build_anthropic_payload(messages, temperature, max_tokens)
+            with httpx.Client(timeout=self.timeout) as client:
+                response = client.post(
+                    self._anthropic_messages_url(),
+                    headers=self._anthropic_headers(),
+                    json=payload,
+                )
+                response.raise_for_status()
+                return self._parse_anthropic_text(response.json())
+
         payload = self._build_payload(messages, temperature, max_tokens, stream=False)
         with httpx.Client(timeout=self.timeout) as client:
             response = client.post(
@@ -120,6 +195,17 @@ class DeepSeekLLM:
         max_tokens: int = 4096,
     ) -> str:
         """异步非流式调用"""
+        if self._uses_anthropic_api:
+            payload = self._build_anthropic_payload(messages, temperature, max_tokens)
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(
+                    self._anthropic_messages_url(),
+                    headers=self._anthropic_headers(),
+                    json=payload,
+                )
+                response.raise_for_status()
+                return self._parse_anthropic_text(response.json())
+
         payload = self._build_payload(messages, temperature, max_tokens, stream=False)
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.post(
@@ -138,6 +224,10 @@ class DeepSeekLLM:
         max_tokens: int = 4096,
     ) -> Iterator[str]:
         """同步流式调用"""
+        if self._uses_anthropic_api:
+            yield self.chat(messages, temperature, max_tokens)
+            return
+
         payload = self._build_payload(messages, temperature, max_tokens, stream=True)
         with httpx.Client(timeout=self.timeout) as client:
             with client.stream(
@@ -159,6 +249,10 @@ class DeepSeekLLM:
         max_tokens: int = 4096,
     ) -> AsyncIterator[str]:
         """异步流式调用"""
+        if self._uses_anthropic_api:
+            yield await self.achat(messages, temperature, max_tokens)
+            return
+
         payload = self._build_payload(messages, temperature, max_tokens, stream=True)
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             async with client.stream(

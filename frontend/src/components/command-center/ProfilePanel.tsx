@@ -54,7 +54,6 @@ export function ProfilePanel({
   const [evidenceOpen, setEvidenceOpen] = useState(false)
   const [confidence, setConfidence] = useState(0)
   const modality = profile?.cognitive_modality === 'text' ? '文字型' : profile?.cognitive_modality === 'visual' ? '视觉型' : profile?.cognitive_modality === 'auditory' ? '听觉型' : profile?.cognitive_modality === 'kinesthetic' ? '动觉型' : '视觉型'
-  const field = profile?.cognitive_field === 'independent' ? '场独立' : '场依存'
 
   useEffect(() => {
     if (!session?.session_id) return
@@ -94,7 +93,7 @@ export function ProfilePanel({
         </div>
         <div className="profile-summary">
           <ProfileLine label="知识水平" value={`${profile?.knowledge_level ?? 3}/5`} blocks={profile?.knowledge_level ?? 3} />
-          <ProfileLine label="认知风格" value={`${modality} · ${field}`} />
+          <ProfileLine label="认知风格" value={modality} />
           <ProfileLine label="学习节奏" value={profile?.learning_pace || '稳步推进'} spark />
           <ProfileLine label="学习目标" value={`通过「${session?.target_concept || targetConcept}」练习`} />
           <p className="profile-mastered">已掌握 {masteredCount} 个关键节点</p>

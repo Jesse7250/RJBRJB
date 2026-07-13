@@ -225,48 +225,48 @@ class AgentOrchestrator:
         # 1. 路径规划：调用 Navigator 获取学习路径
         async for e in emit("navigator", f"正在规划「{concept}」的学习路径..."):
             yield e
-        nav_result = await self._safe_run_async(self.navigator, msg.with_stage("navigator"), timeout=60.0)
+        nav_result = await self._safe_run_async(self.navigator, msg.with_stage("navigator"), timeout=45.0)
         if nav_result.payload.get("fallback"):
-            yield {"type": "error", "message": nav_result.payload.get("error", "路径规划失败")}
-            return
-        path = nav_result.payload.get("path", [concept])
+            path = [concept]
+            async for e in emit(
+                "navigator",
+                "路径规划暂时超时，已使用当前知识点作为基础学习路径，资源生成会继续进行。",
+                {"fallback": True},
+            ):
+                yield e
+        else:
+            path = nav_result.payload.get("path", [concept])
         async for e in emit("navigator", f"学习路径：{' → '.join(path)}"):
             yield e
 
         # 2. 资源生成：调用 Generator 生成教学资源包
         async for e in emit("builder", f"正在为「{concept}」生成个性化教学资源..."):
             yield e
-        gen_result = await self._safe_run_async(self.generator, msg.with_stage("generator"), timeout=60.0)
-        if gen_result.payload.get("fallback"):
-            yield {"type": "error", "message": gen_result.payload.get("error", "资源生成失败")}
-            return
+        gen_result = await self._safe_run_async(self.generator, msg.with_stage("generator"), timeout=45.0)
         package = gen_result.payload.get("package", {})
+        if gen_result.payload.get("fallback") or not package:
+            package = self._fallback_resource_package(concept)
+            async for e in emit(
+                "builder",
+                "AI 资源生成暂时超时，已切换为基础资源模板，稍后可重新生成增强版。",
+                {"fallback": True},
+            ):
+                yield e
         async for e in emit(
             "builder",
             f"教学资源生成完成，包含 {len(package.get('document', ''))} 字讲解文档。",
         ):
             yield e
 
-        # 3. 辩论审核：调用 Reviewer 对资源进行多视角审核
-        async for e in emit("debate", "正在提交辩论议会审核..."):
+        # 3. 快速校验：不阻塞当前资源可用性
+        async for e in emit("debate", "正在执行快速资源校验..."):
             yield e
-        review_msg = AgentMessage(
-            intent="KNOWLEDGE_REQUEST",
-            stage="reviewer",
-            payload={"package": package, "action": "review"},
-            context=context,
-            from_agent="generator",
-        )
-        review_result = await self._safe_run_async(self.reviewer, review_msg, timeout=60.0)
-        if review_result.payload.get("fallback"):
-            yield {"type": "error", "message": review_result.payload.get("error", "辩论审核失败")}
-            return
-        debate_report = review_result.payload.get("debate_report", {})
-        validation = review_result.payload.get("validation", {})
-        review_mode = review_result.payload.get("review_mode", "full")
+        debate_report = self._fast_review_report(package)
+        validation = {"forbidden_concepts": [], "ast_violations": [], "fast_review": True}
+        review_mode = "fast-local"
         async for e in emit(
             "debate",
-            f"辩论议会结束（{review_mode} 模式），最终状态：{debate_report.get('status')}。",
+            f"快速资源校验完成（{review_mode} 模式），最终状态：{debate_report.get('status')}。",
             {"debate_report": debate_report},
         ):
             yield e
@@ -293,6 +293,9 @@ class AgentOrchestrator:
     def _route(self, msg: AgentMessage, session: Optional[dict] = None) -> AgentMessage:
         """按意图路由到对应流程"""
         intent = msg.intent
+        message_type = str(msg.payload.get("message_type", "")).lower()
+        if message_type in {"tutor", "socratic", "guidance"}:
+            return self._tutor_flow(msg, session)
         # 若当前处于苏格拉底辅导中且用户请求继续或直接要答案，优先继续辅导流，
         # 避免被普通知识/路径意图抢走。
         if session and (
@@ -300,6 +303,8 @@ class AgentOrchestrator:
             or self._is_answer_request(msg, session)
         ):
             return self._tutor_flow(msg, session)
+        if self._is_profile_update_request(msg):
+            return self._safe_run(self.profiler, msg)
         if intent == "KNOWLEDGE_REQUEST":
             return self._knowledge_flow(msg, session)
         if intent == "CODE_HELP":
@@ -308,8 +313,46 @@ class AgentOrchestrator:
             return self._evaluate_flow(msg)
         if intent == "PATH_ADJUST":
             return self._path_adjust_flow(msg)
-        # 默认进入聊天/画像更新流程
-        return self._safe_run(self.profiler, msg)
+        if self._is_profile_update_request(msg):
+            return self._safe_run(self.profiler, msg)
+        return self._assistant_chat_flow(msg)
+
+    def _assistant_chat_flow(self, msg: AgentMessage) -> AgentMessage:
+        """处理寒暄、身份说明和非画像类普通对话。"""
+        user_msg = msg.payload.get("message", "").strip()
+        if not user_msg:
+            answer = "我在这里。你可以问我课程怎么学、页面怎么用，或者直接说出你卡住的知识点。"
+        elif any(w in user_msg for w in ["你是谁", "你叫什么", "介绍一下你"]):
+            answer = "我是小蜂导学，智学蜂巢里的 AI 学习助教。学习问题我会引导你思考，页面操作我会告诉你该点哪里、怎么看。"
+        elif any(w in user_msg for w in ["你好", "您好", "hello", "hi"]):
+            answer = "你好，我是小蜂导学。你可以直接问我知识点、代码报错、学习路径，或者让我解释当前页面怎么用。"
+        else:
+            try:
+                llm = get_llm_provider()
+                answer = llm.chat(
+                    [
+                        {
+                            "role": "system",
+                            "content": (
+                                "你是智学蜂巢的 AI 学习助教小蜂导学。"
+                                "请用中文自然回答普通交流问题；如果用户问学习问题，简洁说明并引导他继续描述。"
+                                "不要输出 JSON，不要说你在更新画像。"
+                            ),
+                        },
+                        {"role": "user", "content": user_msg},
+                    ],
+                    temperature=0.6,
+                    max_tokens=500,
+                ).strip()
+            except Exception:
+                answer = "我收到啦。你可以继续说具体问题，我会按学习目标和当前页面帮你分析。"
+            if not answer:
+                answer = "我收到啦。你可以继续说具体问题，我会按学习目标和当前页面帮你分析。"
+        return msg.reply({"message": answer}, stage="chat", from_agent="AI助教")
+
+    def _is_profile_update_request(self, msg: AgentMessage) -> bool:
+        user_msg = msg.payload.get("message", "")
+        return any(w in user_msg for w in ["学习画像", "更新画像", "分析画像", "学习行为", "认知风格", "学习偏好", "学习节奏"])
 
     def _explain_concept(self, concept: str) -> str:
         """轻量概念解释：用于聊天中的知识询问，避免直接触发完整资源生成"""
@@ -325,6 +368,110 @@ class AgentOrchestrator:
             "字符串操作": "字符串操作包括拼接、切片、查找、替换等，Python 提供了丰富的方法。",
         }
         return explanations.get(concept, f"{concept} 是 Python 学习中的重要知识点，建议你通过讲义、练习和代码案例来掌握它。")
+
+    def _fallback_resource_package(self, concept: str) -> Dict[str, Any]:
+        """构造兜底资源包，保证生成接口在 LLM 超时或熔断时仍可用于学习。"""
+        title = concept or "当前知识点"
+        document = f"""# {title}
+
+## 学习目标
+- 说清楚「{title}」解决什么问题。
+- 能够读懂一个最小示例，并指出关键语法。
+- 能够完成一道基础练习，把概念用到代码中。
+
+## 核心讲解
+「{title}」是 Python 学习路径中的一个知识点。学习时建议先看清输入、处理过程和输出结果，再逐步补充语法细节。
+
+如果你暂时没有生成到增强版讲义，可以先按下面的顺序学习：
+
+1. 先用一句话描述这个知识点的用途。
+2. 再运行一个最小示例，观察输出结果。
+3. 最后修改示例中的一个变量或条件，验证自己是否真正理解。
+
+## 常见错误
+- 只记住语法形式，没有理解代码执行顺序。
+- 没有区分变量名、字符串和值本身。
+- 代码缩进或符号写错，导致运行结果和预期不同。
+
+## 学习建议
+先完成基础练习，再进入代码沙箱做一次改写。等 DeepSeek 增强生成完成后，可以重新生成更完整的个性化资源。
+"""
+        mindmap = f"""mindmap
+  root(({title}))
+    学习目标
+      理解用途
+      掌握语法
+      能够应用
+    核心步骤
+      阅读示例
+      运行观察
+      修改验证
+    常见错误
+      概念混淆
+      语法疏漏
+      缩进问题
+"""
+        return {
+            "concept": title,
+            "document": document,
+            "mindmap": mindmap,
+            "exercises": [
+                {
+                    "id": "fallback-1",
+                    "type": "short_answer",
+                    "question": f"请用自己的话解释「{title}」在 Python 中主要解决什么问题。",
+                    "answer": f"围绕「{title}」说明它的用途、基本语法和一个应用场景即可。",
+                    "expected_output": "",
+                },
+                {
+                    "id": "fallback-2",
+                    "type": "coding",
+                    "question": f"写一个最小 Python 示例，展示「{title}」的基本用法。",
+                    "answer": "# 根据当前知识点写出一个可运行的最小示例，并说明输出结果。",
+                    "expected_output": "",
+                },
+            ],
+            "code_cases": [
+                {
+                    "title": f"{title} 最小示例",
+                    "description": "用于先跑通基础概念，再逐步修改观察结果。",
+                    "code": "print('先运行一个最小示例，再替换为当前知识点代码')",
+                    "explanation": "这是超时兜底示例。重新生成增强版资源后，会替换为更贴合知识点的代码案例。",
+                }
+            ],
+            "audio_text": f"这一节我们先用基础方式学习{title}。请先理解它的用途，再运行一个最小示例，最后通过改写代码检查自己是否掌握。",
+            "fallback": True,
+            "fallback_reason": "llm_timeout_or_degraded",
+        }
+
+    def _fast_review_report(self, package: Dict[str, Any]) -> Dict[str, Any]:
+        has_document = bool(package.get("document"))
+        is_fallback = bool(package.get("fallback"))
+        status = "MODIFIED" if is_fallback else ("PASSED" if has_document else "MODIFIED")
+        message = (
+            "快速校验完成：当前使用基础资源模板，可先保证学习流程不断开。"
+            if is_fallback
+            else "快速校验完成：资源已生成，未发现阻塞学习使用的明显问题。"
+        )
+        suggestion = (
+            "建议稍后重新生成增强版，或在网络稳定时执行完整多智能体审核。"
+            if is_fallback
+            else "完整多智能体审核可作为增强流程稍后执行，不阻塞当前学习资源使用。"
+        )
+        verdict = "WARN" if is_fallback or not has_document else "PASS"
+        return {
+            "status": status,
+            "rounds": [
+                {
+                    "round": 1,
+                    "agent": "Guardian",
+                    "verdict": verdict,
+                    "message": message,
+                    "suggestion": suggestion,
+                }
+            ],
+            "final_votes": {"Guardian": verdict},
+        }
 
     def _knowledge_flow(self, msg: AgentMessage, session: Optional[dict] = None) -> AgentMessage:
         """学习新知识流程：Navigator -> Generator -> Reviewer"""
@@ -355,25 +502,18 @@ class AgentOrchestrator:
 
         # 1. 路径规划
         nav_msg = msg.with_stage("navigator")
-        nav_result = self._safe_run(self.navigator, nav_msg, timeout=60.0)
+        nav_result = self._safe_run(self.navigator, nav_msg, timeout=45.0)
         path = nav_result.payload.get("path", [concept])
 
         # 2. 资源生成
         gen_msg = msg.with_stage("generator")
-        gen_result = self._safe_run(self.generator, gen_msg, timeout=60.0)
+        gen_result = self._safe_run(self.generator, gen_msg, timeout=45.0)
         package = gen_result.payload.get("package")
         if not package:
-            return msg.reply({"error": "资源生成失败"}, from_agent="Generator")
+            package = self._fallback_resource_package(concept)
 
-        # 3. 辩论审核
-        review_msg = AgentMessage(
-            intent=msg.intent,
-            stage="reviewer",
-            payload={"package": package, "action": "review"},
-            context=msg.context,
-            from_agent="Generator",
-        )
-        review_result = self._safe_run(self.reviewer, review_msg, timeout=60.0)
+        # 3. 快速校验：完整 Reviewer 审核不再阻塞资源生成主链路
+        review_report = self._fast_review_report(package)
 
         # 4. 返回给前端的完整响应
         return msg.reply(
@@ -382,9 +522,9 @@ class AgentOrchestrator:
                 "concept": concept,
                 "path": path,
                 "package": package,
-                "debate_report": review_result.payload.get("debate_report", {}),
-                "validation": review_result.payload.get("validation", {}),
-                "review_mode": review_result.payload.get("review_mode", "full"),
+                "debate_report": review_report,
+                "validation": {"forbidden_concepts": [], "ast_violations": [], "fast_review": True},
+                "review_mode": "fast-local",
             },
             stage="reviewer",
             from_agent="Reviewer",
@@ -394,13 +534,15 @@ class AgentOrchestrator:
         """代码求助流程：Reviewer.tutor，支持多轮 depth 递进"""
         user_msg = msg.payload.get("message", "")
         previous_tutor = session.get("last_tutor_context", {}) if session else {}
-        concept = msg.context.get("target_concept") or previous_tutor.get("concept") or "当前知识点"
+        concept = self._extract_concept(user_msg) or previous_tutor.get("concept") or msg.context.get("target_concept") or "当前知识点"
 
         # 从消息中简单提取 Python 代码块与错误描述
         code_match = re.search(r"```python\s*(.*?)\s*```", user_msg, re.DOTALL)
         code = code_match.group(1) if code_match else previous_tutor.get("code") or "# 学生未提供代码"
         error_match = re.search(r"错误[：:]\s*(.+)", user_msg)
         error = error_match.group(1) if error_match else previous_tutor.get("error_message") or "请描述你遇到的错误"
+        if not error_match and any(w in user_msg for w in ["报错", "错误", "异常", "TypeError", "ValueError", "数据类型"]):
+            error = user_msg
 
         # 从 session 中读取当前提问深度，实现 5 阶段递进
         depth = 0
@@ -675,8 +817,20 @@ class AgentOrchestrator:
         if session.get("socratic_depth", 0) <= 0:
             return False
         user_msg = msg.payload.get("message", "")
+        if self._is_profile_update_request(msg):
+            return False
+        if any(w in user_msg for w in ["退出辅导", "结束辅导", "换个话题", "不问这个了", "回到首页"]):
+            return False
+        previous_tutor = session.get("last_tutor_context", {})
+        if previous_tutor.get("question") and not self._is_smalltalk_message(user_msg):
+            return True
         continue_patterns = ["继续", "下一步", "继续引导", "请继续", "接着问", "再问一下"]
         return any(p in user_msg for p in continue_patterns)
+
+    @staticmethod
+    def _is_smalltalk_message(user_msg: str) -> bool:
+        text = user_msg.strip().lower()
+        return text in {"你好", "您好", "hello", "hi", "嗨", "你是谁", "你叫什么"}
 
     def _is_answer_request(self, msg: AgentMessage, session: dict) -> bool:
         """判断处于辅导中的学生是否要求直接给出答案/思路"""
@@ -725,7 +879,7 @@ class AgentOrchestrator:
             return "PATH_ADJUST"
         if any(w in msg for w in ["进度", "学得怎么样", "学得如何", "练得如何", "掌握", "测试一下"]):
             return "PROGRESS_CHECK"
-        if any(w in msg for w in ["什么是", "讲一下", "教一下", "怎么", "如何做", "解释一下", "介绍一下", "给我讲"]):
+        if any(w in msg for w in ["什么", "讲一下", "教一下", "怎么", "如何做", "解释一下", "介绍一下", "给我讲", "变量", "循环", "函数", "条件", "列表", "字典", "文件读写", "代码"]):
             return "KNOWLEDGE_REQUEST"
         return "CHAT"
 

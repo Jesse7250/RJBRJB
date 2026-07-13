@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { ChevronRight, Eye, HelpCircle, Lightbulb, MessageCircleQuestion } from 'lucide-react'
+import { ChevronRight, Eye, HelpCircle, Lightbulb, ListChecks, MessageCircleQuestion } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -13,6 +13,7 @@ const STAGE_NAMES: Record<string, string> = {
   counter_example: '反例思考',
   convergence: '收敛答案',
   tutor: '引导中',
+  guided: '引导中',
 }
 
 const STAGE_HINTS: Record<string, string> = {
@@ -94,8 +95,8 @@ export function SocraticPanel({
 
       {answer && showAnswer && (
         <div className="socratic-answer">
-          <strong>参考思路</strong>
-          <p>{answer}</p>
+          <ListChecks className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+          <span>{answer}</span>
         </div>
       )}
 
@@ -104,10 +105,10 @@ export function SocraticPanel({
           <Eye className="h-3.5 w-3.5" />
           {showHint ? '收起提示' : '查看提示'}
         </Button>
-        {canRevealAnswer && !showAnswer && (
-          <Button type="button" variant="outline" size="sm" className="socratic-outline-button" onClick={() => setShowAnswer(true)}>
-            <Eye className="h-3.5 w-3.5" />
-            参考思路
+        {canRevealAnswer && (
+          <Button type="button" variant="outline" size="sm" className="socratic-outline-button" onClick={() => setShowAnswer((value) => !value)}>
+            <ListChecks className="h-3.5 w-3.5" />
+            {showAnswer ? '收起思路' : '参考思路'}
           </Button>
         )}
         <Button type="button" size="sm" className="socratic-primary-button" onClick={onNext}>

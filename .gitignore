@@ -64,6 +64,8 @@ Thumbs.db
 # Test artifacts
 backend/ablation_report.json
 backend/tmp_inspect_code.py
+backend/tts-test*.mp3
+backend/tts-check*.mp3
 
 # Runtime logs & screenshots
 logs/
