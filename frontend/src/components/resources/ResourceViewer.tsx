@@ -47,6 +47,7 @@ import {
   Workflow,
   Eye,
   EyeOff,
+  Download,
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -58,6 +59,18 @@ import { Stepper } from '@/components/ui/stepper'
 import { EmptyState } from '@/components/ui/empty-state'
 import { CognitiveStylePanel, type CognitiveStyle } from '@/components/resources/CognitiveStyleRenderer'
 import { FurnaceTimeline } from '@/components/resources/FurnaceTimeline'
+
+function downloadMarkdown(content: string, filename: string) {
+  const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
 import { ThinkingPathReplay } from '@/components/resources/ThinkingPathReplay'
 import { VariableVisualizer } from '@/components/resources/VariableVisualizer'
 import api, { behaviorApi, codeApi, resourceApi } from '@/services/api'
@@ -385,6 +398,15 @@ export function ResourceViewer({ sessionId }: Props) {
                   <FileText className="mr-1.5 inline h-4 w-4 text-indigo-500" />
                   {resource.concept} · 讲解文档
                 </h4>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => downloadMarkdown(resource.package.document, `${resource.concept}.md`)}
+                  className="gap-1.5"
+                >
+                  <Download className="h-4 w-4" />
+                  下载 Markdown
+                </Button>
               </div>
               <div className="p-5">
                 <CognitiveStylePanel

@@ -89,14 +89,22 @@ def _get_or_create_session(request: Request, session_id: str | None = None):
 
 
 def _save_session(request: Request, session: dict):
-    """保存会活到内存和 SQLite"""
+    """保存会活到内存和 SQLite（不存在则自动创建）"""
     request.app.state.sessions_db[session["session_id"]] = session
-    update_session(
-        session["session_id"],
-        session["profile"],
-        session.get("dialogue_history", []),
-        session.get("target_concept"),
-    )
+    if get_session(session["session_id"]) is None:
+        create_session(
+            session["session_id"],
+            session.get("user_id", "default"),
+            session["profile"],
+            session.get("target_concept"),
+        )
+    else:
+        update_session(
+            session["session_id"],
+            session["profile"],
+            session.get("dialogue_history", []),
+            session.get("target_concept"),
+        )
 
 
 def _stage_to_status(stage: str) -> str:

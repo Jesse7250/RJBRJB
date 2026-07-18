@@ -619,7 +619,7 @@ def find_resource_by_concept(session_id: str, concept: str, status: Optional[str
         ))
         if not rows:
             return None
-        latest = max(rows, key=lambda r: r["version"])
+        latest = max(rows, key=lambda r: (r["version"], r.get("created_at", "") or ""))
         return get_resource(latest["resource_id"])
     finally:
         db.conn.close()
@@ -632,7 +632,7 @@ def find_latest_resource_by_concept(concept: str) -> Optional[dict]:
         rows = list(db["resource"].rows_where("concept = ?", [concept]))
         if not rows:
             return None
-        latest = max(rows, key=lambda r: r["version"])
+        latest = max(rows, key=lambda r: (r["version"], r.get("created_at", "") or ""))
         return get_resource(latest["resource_id"])
     finally:
         db.conn.close()

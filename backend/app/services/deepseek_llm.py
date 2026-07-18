@@ -53,7 +53,7 @@ class DeepSeekLLM:
         self.api_key = settings.DEEPSEEK_API_KEY
         self.base_url = (settings.ANTHROPIC_BASE_URL or settings.DEEPSEEK_BASE_URL).rstrip("/")
         self.model = model or settings.DEEPSEEK_MODEL or self.DEFAULT_MODEL
-        self.timeout = 60.0
+        self.timeout = 120.0
 
         if not self.api_key:
             raise ValueError("DeepSeek API Key 未配置，请检查 .env 文件")

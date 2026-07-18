@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ComponentType } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from 'react'
 import { motion, useMotionValue } from 'framer-motion'
 import {
   BarChart3,
@@ -721,7 +721,7 @@ function App() {
     } : current)
   }
 
-  const applyResourceCache = (concept: string, entry: ResourcePanelCacheEntry, note = 'cache') => {
+  const applyResourceCache = useCallback((concept: string, entry: ResourcePanelCacheEntry, note = 'cache') => {
     setResourceConcept(concept)
     setResourcePackage(entry.resource)
     setThinkingSteps(entry.thinkingSteps)
@@ -737,7 +737,7 @@ function App() {
     if (session && note !== 'silent') {
       behaviorApi.log(session.session_id, 'resource_cache_hit', concept, { surface: note }).catch(() => undefined)
     }
-  }
+  }, [session])
   const [loginUsername, setLoginUsername] = useState(() => {
     if (typeof window === 'undefined') return ''
     return window.localStorage.getItem('eduhive.username') ?? ''
@@ -781,7 +781,7 @@ function App() {
     return () => window.removeEventListener('hashchange', syncRoute)
   }, [])
 
-  const navigateTo = (nav: NavKey, note?: string) => {
+  const navigateTo = useCallback((nav: NavKey, note?: string) => {
     const wasGraph = activeNav === 'graph'
     setCourseMode('python')
     setSelectedCourseId('python')
@@ -794,7 +794,7 @@ function App() {
       window.location.hash = `/course/python/${nav}`
     }
     setWorkspaceNote(note ?? `已切换到「${NAV_ITEMS.find((item) => item.key === nav)?.label ?? '工作台'}」。`)
-  }
+  }, [activeNav])
 
   const openPortal = () => {
     setCourseMode('portal')
@@ -976,7 +976,7 @@ function App() {
     }
 
     loadLearningSignals()
-    const timer = window.setInterval(loadLearningSignals, 6000)
+    const timer = window.setInterval(loadLearningSignals, 30000)
     return () => window.clearInterval(timer)
   }, [session])
 
@@ -992,7 +992,7 @@ function App() {
       }
     }
     loadAgentTraces()
-    const timer = window.setInterval(loadAgentTraces, 6000)
+    const timer = window.setInterval(loadAgentTraces, 30000)
     return () => window.clearInterval(timer)
   }, [session])
 
@@ -1047,7 +1047,7 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeNav, resourceConcept])
 
-  const selectNode = async (node: PathNode) => {
+  const selectNode = useCallback(async (node: PathNode) => {
     setSelectedNodeId(node.id)
     setSelectedConcept(node.title)
     setShowGraphDetail(true)
@@ -1064,9 +1064,11 @@ function App() {
     } catch {
       setConceptDetail(null)
     }
-  }
+  }, [session])
 
-  const planPath = async () => {
+  const closeGraphDetail = useCallback(() => setShowGraphDetail(false), [])
+
+  const planPath = useCallback(async () => {
     navigateTo('graph', `Navigator 正在为「${selectedConcept}」规划路径...`)
     try {
       const res = session
@@ -1085,7 +1087,7 @@ function App() {
     } catch {
       setWorkspaceNote('路径接口暂不可用，已保留当前可视化路径。')
     }
-  }
+  }, [navigateTo, session, pathNodes, selectedConcept])
 
   const analyzeMastery = async () => {
     if (!session) {
@@ -1260,7 +1262,7 @@ function App() {
     }
   }
 
-  const loadResource = async (concept = resourceConcept, surface: 'open' | 'refresh' | 'switch' = 'open') => {
+  const loadResource = useCallback(async (concept = resourceConcept, surface: 'open' | 'refresh' | 'switch' = 'open') => {
     setResourceConcept(concept)
     const shouldUseCache = surface !== 'refresh'
     const cached = resourcePanelCacheRef.current.get(concept)
@@ -1328,9 +1330,9 @@ function App() {
       setResourcePanelLoading(false)
     }
     return loadedResource
-  }
+  }, [applyResourceCache, resourceConcept, session])
 
-  const generateResource = async (concept = selectedConcept, source: 'goal' | 'node' | 'resource' = 'node') => {
+  const generateResource = useCallback(async (concept = selectedConcept, source: 'goal' | 'node' | 'resource' = 'node') => {
     if (!session) {
       setResourceStatus('会话尚未创建完成，请稍后再试。')
       setWorkspaceNote('后端会话还在初始化，资源生成需要有效 session_id。')
@@ -1406,7 +1408,9 @@ function App() {
     } finally {
       setResourceLoading(false)
     }
-  }
+  }, [session, selectedConcept, loadResource, thinkingSteps, versions, resourceEvolution, feedbackStats, navigateTo])
+
+  const generateGraphResource = useCallback((concept: string) => generateResource(concept, 'node'), [generateResource])
 
   const sendCodeCaseToSandbox = (codeCase: Record<string, any>) => {
     const nextCode = String(codeCase.code || codeCase.starter_code || SAMPLE_CODE)
@@ -1667,9 +1671,9 @@ function App() {
                   showDetail={showGraphDetail}
                   focusNonce={graphFocusNonce}
                   onNodeSelect={selectNode}
-                  onCanvasBlankClick={() => setShowGraphDetail(false)}
+                  onCanvasBlankClick={closeGraphDetail}
                   onPlanPath={planPath}
-                  onGenerateResource={(concept) => generateResource(concept, 'node')}
+                  onGenerateResource={generateGraphResource}
                 />
                 <WorkspaceDock
                   activeNav={activeNav}
@@ -2295,7 +2299,7 @@ function BrandBlock() {
   )
 }
 
-function KnowledgePanel({
+const KnowledgePanel = memo(function KnowledgePanel({
   nodes,
   edges,
   plannedPath,
@@ -2358,7 +2362,7 @@ function KnowledgePanel({
     })
     .filter((edge): edge is NonNullable<typeof edge> => Boolean(edge)), [edges, nodeByTitle, plannedEdgeSet])
   const activeEdges = useMemo(() => renderedEdges.filter((item) => item.active), [renderedEdges])
-  const mapPixelWidth = Math.max(1900, nodes.length * 260)
+  const mapPixelWidth = Math.max(1200, nodes.length * 180)
   const dragLeft = -Math.max(820, mapPixelWidth - 920)
   const nodeX = selectedNode ? (selectedNode.x / 100) * mapPixelWidth : 0
   const nodeY = selectedNode ? (selectedNode.y / 100) * canvasSize.height : 0
@@ -2500,9 +2504,9 @@ function KnowledgePanel({
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_83%_74%,rgba(245,176,65,.16),transparent_18%)]" />
     </Panel>
   )
-}
+})
 
-function GraphNode({
+const GraphNode = memo(function GraphNode({
   node,
   index,
   known,
@@ -2519,7 +2523,7 @@ function GraphNode({
   onPlannedPath: boolean
   onSelect: () => void
 }) {
-  const waveCount = selected ? 3 : onPlannedPath ? 2 : 0
+  const waveCount = selected ? 2 : onPlannedPath ? 1 : 0
 
   return (
     <motion.button
@@ -2545,7 +2549,7 @@ function GraphNode({
       </div>
     </motion.button>
   )
-}
+})
 
 function ChatCommand({
   input,

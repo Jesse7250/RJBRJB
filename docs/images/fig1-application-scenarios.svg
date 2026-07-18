@@ -1,0 +1,296 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="579.6pt" height="435.87125pt" viewBox="0 0 579.6 435.87125" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:date>2026-07-16T01:03:00.230779</dc:date>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.10.8, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 435.87125 
+L 579.6 435.87125 
+L 579.6 0 
+L 0 0 
+z
+" style="fill: #ffffff"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 289.8 273.72005 
+C 306.078166 273.72005 321.691812 269.222089 333.202214 261.21679 
+C 344.712616 253.211491 351.18 242.352452 351.18 231.03125 
+C 351.18 219.710048 344.712616 208.851009 333.202214 200.84571 
+C 321.691812 192.840411 306.078166 188.34245 289.8 188.34245 
+C 273.521834 188.34245 257.908188 192.840411 246.397786 200.84571 
+C 234.887384 208.851009 228.42 219.710048 228.42 231.03125 
+C 228.42 242.352452 234.887384 253.211491 246.397786 261.21679 
+C 257.908188 269.222089 273.521834 273.72005 289.8 273.72005 
+z
+" style="fill: #1e5aa8; stroke: #1f2937; stroke-width: 2; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_3">
+    <path d="M 88.92 153.41525 
+L 234 153.41525 
+Q 245.16 153.41525 245.16 145.65365 
+L 245.16 68.03765 
+Q 245.16 60.27605 234 60.27605 
+L 88.92 60.27605 
+Q 77.76 60.27605 77.76 68.03765 
+L 77.76 145.65365 
+Q 77.76 153.41525 88.92 153.41525 
+z
+" style="fill: #ffffff; stroke: #3b82f6; stroke-width: 2; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_4">
+    <path d="M 91.71 87.44165 
+L 231.21 87.44165 
+Q 239.58 87.44165 239.58 81.62045 
+L 239.58 69.97805 
+Q 239.58 64.15685 231.21 64.15685 
+L 91.71 64.15685 
+Q 83.34 64.15685 83.34 69.97805 
+L 83.34 81.62045 
+Q 83.34 87.44165 91.71 87.44165 
+z
+" style="fill: #3b82f6; stroke: #1f2937; stroke-width: 1.2; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_5">
+    <path d="M 244.356766 108.67646 
+Q 229.712774 142.509247 228.525913 177.901791 
+" style="fill: none; stroke: #3b82f6; stroke-width: 1.3; stroke-linecap: round"/>
+    <path d="M 231.085438 173.184925 
+L 228.525913 177.901791 
+L 226.288135 173.024051 
+" style="fill: none; stroke: #3b82f6; stroke-width: 1.3; stroke-linecap: round"/>
+   </g>
+   <g id="patch_6">
+    <path d="M 367.92 153.41525 
+L 513 153.41525 
+Q 524.16 153.41525 524.16 145.65365 
+L 524.16 68.03765 
+Q 524.16 60.27605 513 60.27605 
+L 367.92 60.27605 
+Q 356.76 60.27605 356.76 68.03765 
+L 356.76 145.65365 
+Q 356.76 153.41525 367.92 153.41525 
+z
+" style="fill: #ffffff; stroke: #0d9488; stroke-width: 2; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_7">
+    <path d="M 370.71 87.44165 
+L 510.21 87.44165 
+Q 518.58 87.44165 518.58 81.62045 
+L 518.58 69.97805 
+Q 518.58 64.15685 510.21 64.15685 
+L 370.71 64.15685 
+Q 362.34 64.15685 362.34 69.97805 
+L 362.34 81.62045 
+Q 362.34 87.44165 370.71 87.44165 
+z
+" style="fill: #0d9488; stroke: #1f2937; stroke-width: 1.2; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_8">
+    <path d="M 356.231503 108.777172 
+Q 346.900781 143.571139 350.78173 177.922464 
+" style="fill: none; stroke: #0d9488; stroke-width: 1.3; stroke-linecap: round"/>
+    <path d="M 352.627691 172.883374 
+L 350.78173 177.922464 
+L 347.858035 173.422241 
+" style="fill: none; stroke: #0d9488; stroke-width: 1.3; stroke-linecap: round"/>
+   </g>
+   <g id="patch_9">
+    <path d="M 88.92 347.45525 
+L 234 347.45525 
+Q 245.16 347.45525 245.16 339.69365 
+L 245.16 262.07765 
+Q 245.16 254.31605 234 254.31605 
+L 88.92 254.31605 
+Q 77.76 254.31605 77.76 262.07765 
+L 77.76 339.69365 
+Q 77.76 347.45525 88.92 347.45525 
+z
+" style="fill: #ffffff; stroke: #16a34a; stroke-width: 2; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_10">
+    <path d="M 91.71 281.48165 
+L 231.21 281.48165 
+Q 239.58 281.48165 239.58 275.66045 
+L 239.58 264.01805 
+Q 239.58 258.19685 231.21 258.19685 
+L 91.71 258.19685 
+Q 83.34 258.19685 83.34 264.01805 
+L 83.34 275.66045 
+Q 83.34 281.48165 91.71 281.48165 
+z
+" style="fill: #16a34a; stroke: #1f2937; stroke-width: 1.2; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_11">
+    <path d="M 244.780424 298.922335 
+Q 240.632231 278.39411 230.269575 261.887582 
+" style="fill: none; stroke: #16a34a; stroke-width: 1.3; stroke-linecap: round"/>
+    <path d="M 230.789083 267.228941 
+L 230.269575 261.887582 
+L 234.854367 264.676791 
+" style="fill: none; stroke: #16a34a; stroke-width: 1.3; stroke-linecap: round"/>
+   </g>
+   <g id="patch_12">
+    <path d="M 367.92 347.45525 
+L 513 347.45525 
+Q 524.16 347.45525 524.16 339.69365 
+L 524.16 262.07765 
+Q 524.16 254.31605 513 254.31605 
+L 367.92 254.31605 
+Q 356.76 254.31605 356.76 262.07765 
+L 356.76 339.69365 
+Q 356.76 347.45525 367.92 347.45525 
+z
+" style="fill: #ffffff; stroke: #ea580c; stroke-width: 2; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_13">
+    <path d="M 370.71 281.48165 
+L 510.21 281.48165 
+Q 518.58 281.48165 518.58 275.66045 
+L 518.58 264.01805 
+Q 518.58 258.19685 510.21 258.19685 
+L 370.71 258.19685 
+Q 362.34 258.19685 362.34 264.01805 
+L 362.34 275.66045 
+Q 362.34 281.48165 370.71 281.48165 
+z
+" style="fill: #ea580c; stroke: #1f2937; stroke-width: 1.2; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_14">
+    <path d="M 356.872087 298.889474 
+Q 357.789944 279.421922 352.25704 262.255909 
+" style="fill: none; stroke: #ea580c; stroke-width: 1.3; stroke-linecap: round"/>
+    <path d="M 351.445287 267.560724 
+L 352.25704 262.255909 
+L 356.01384 266.0882 
+" style="fill: none; stroke: #ea580c; stroke-width: 1.3; stroke-linecap: round"/>
+   </g>
+   <g id="patch_15">
+    <path d="M 24.75 269.83925 
+L 74.97 269.83925 
+Q 77.76 269.83925 77.76 267.89885 
+L 77.76 194.16365 
+Q 77.76 192.22325 74.97 192.22325 
+L 24.75 192.22325 
+Q 21.96 192.22325 21.96 194.16365 
+L 21.96 267.89885 
+Q 21.96 269.83925 24.75 269.83925 
+z
+" style="fill: #ffffff; stroke: #4b5563; stroke-width: 1.2; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_16">
+    <path d="M 504.63 269.83925 
+L 554.85 269.83925 
+Q 557.64 269.83925 557.64 267.89885 
+L 557.64 194.16365 
+Q 557.64 192.22325 554.85 192.22325 
+L 504.63 192.22325 
+Q 501.84 192.22325 501.84 194.16365 
+L 501.84 267.89885 
+Q 501.84 269.83925 504.63 269.83925 
+z
+" style="fill: #ffffff; stroke: #4b5563; stroke-width: 1.2; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_17">
+    <path d="M 77.76 209.627634 
+Q 77.76 176.700421 77.76 144.891242 
+" style="fill: none; stroke: #4b5563; stroke-linecap: round"/>
+    <path d="M 75.36 149.691242 
+L 77.76 144.891242 
+L 80.16 149.691242 
+" style="fill: none; stroke: #4b5563; stroke-linecap: round"/>
+   </g>
+   <g id="patch_18">
+    <path d="M 77.76 252.433445 
+Q 77.76 256.254867 77.76 258.958255 
+" style="fill: none; stroke: #4b5563; stroke-linecap: round"/>
+    <path d="M 80.16 254.158255 
+L 77.76 258.958255 
+L 75.36 254.158255 
+" style="fill: none; stroke: #4b5563; stroke-linecap: round"/>
+   </g>
+   <g id="patch_19">
+    <path d="M 501.84 209.627634 
+Q 501.84 176.700421 501.84 144.891242 
+" style="fill: none; stroke: #4b5563; stroke-linecap: round"/>
+    <path d="M 499.44 149.691242 
+L 501.84 144.891242 
+L 504.24 149.691242 
+" style="fill: none; stroke: #4b5563; stroke-linecap: round"/>
+   </g>
+   <g id="patch_20">
+    <path d="M 501.84 252.433445 
+Q 501.84 256.254867 501.84 258.958255 
+" style="fill: none; stroke: #4b5563; stroke-linecap: round"/>
+    <path d="M 504.24 254.158255 
+L 501.84 258.958255 
+L 499.44 254.158255 
+" style="fill: none; stroke: #4b5563; stroke-linecap: round"/>
+   </g>
+   <g id="text_1">
+    <text style="font-weight: 700; font-size: 12px; font-family: 'Microsoft YaHei', 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #ffffff" x="289.8" y="226.574338" transform="rotate(-0 289.8 226.574338)">智学蜂巢</text>
+   </g>
+   <g id="text_2">
+    <text style="font-size: 10px; font-family: 'Microsoft YaHei', 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #ffffff" x="289.8" y="241.546756" transform="rotate(-0 289.8 241.546756)">EduHive</text>
+   </g>
+   <g id="text_3">
+    <text style="font-weight: 700; font-size: 9px; font-family: 'Microsoft YaHei', 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #ffffff" x="161.46" y="78.277766" transform="rotate(-0 161.46 78.277766)">课后自主学习</text>
+   </g>
+   <g id="text_4">
+    <text style="font-size: 8px; font-family: 'Microsoft YaHei', 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; fill: #1f2937" transform="translate(126.5775 106.508125)">AI 个性化讲义/练习</text>
+    <text style="font-size: 8px; font-family: 'Microsoft YaHei', 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; fill: #1f2937" transform="translate(121.46 116.810375)">多智能体苏格拉底辅导</text>
+    <text style="font-size: 8px; font-family: 'Microsoft YaHei', 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; fill: #1f2937" transform="translate(125.46 127.112625)">自动规划薄弱点路径</text>
+   </g>
+   <g id="text_5">
+    <text style="font-weight: 700; font-size: 9px; font-family: 'Microsoft YaHei', 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #ffffff" x="440.46" y="78.277766" transform="rotate(-0 440.46 78.277766)">翻转课堂资源推送</text>
+   </g>
+   <g id="text_6">
+    <text style="font-size: 8px; font-family: 'Microsoft YaHei', 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; fill: #1f2937" transform="translate(403.125625 106.508125)">课前微课 + 预习诊断</text>
+    <text style="font-size: 8px; font-family: 'Microsoft YaHei', 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; fill: #1f2937" transform="translate(408.46 116.810375)">课堂实时数据看板</text>
+    <text style="font-size: 8px; font-family: 'Microsoft YaHei', 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; fill: #1f2937" transform="translate(416.46 127.112625)">课后分层作业</text>
+   </g>
+   <g id="text_7">
+    <text style="font-weight: 700; font-size: 9px; font-family: 'Microsoft YaHei', 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #ffffff" x="161.46" y="272.317766" transform="rotate(-0 161.46 272.317766)">考前薄弱点巩固</text>
+   </g>
+   <g id="text_8">
+    <text style="font-size: 8px; font-family: 'Microsoft YaHei', 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; fill: #1f2937" transform="translate(132.93375 300.548125)">BKT 掌握度诊断</text>
+    <text style="font-size: 8px; font-family: 'Microsoft YaHei', 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; fill: #1f2937" transform="translate(128.125625 310.850375)">错题重练 + 变式题</text>
+    <text style="font-size: 8px; font-family: 'Microsoft YaHei', 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; fill: #1f2937" transform="translate(137.46 321.152625)">考前冲刺路径</text>
+   </g>
+   <g id="text_9">
+    <text style="font-weight: 700; font-size: 9px; font-family: 'Microsoft YaHei', 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #ffffff" x="440.46" y="272.317766" transform="rotate(-0 440.46 272.317766)">教师备课与学情分析</text>
+   </g>
+   <g id="text_10">
+    <text style="font-size: 8px; font-family: 'Microsoft YaHei', 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; fill: #1f2937" transform="translate(408.46 300.548125)">班级掌握度热力图</text>
+    <text style="font-size: 8px; font-family: 'Microsoft YaHei', 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; fill: #1f2937" transform="translate(416.46 310.850375)">资源版本演进</text>
+    <text style="font-size: 8px; font-family: 'Microsoft YaHei', 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; fill: #1f2937" transform="translate(411.28625 321.152625)">AI 辅助备课建议</text>
+   </g>
+   <g id="text_11">
+    <text style="font-size: 10px; font-family: 'Microsoft YaHei', 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #1f2937" x="49.86" y="233.785156" transform="rotate(-0 49.86 233.785156)">学生</text>
+   </g>
+   <g id="text_12">
+    <text style="font-size: 10px; font-family: 'Microsoft YaHei', 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #1f2937" x="529.74" y="233.785156" transform="rotate(-0 529.74 233.785156)">教师</text>
+   </g>
+   <g id="text_13">
+    <text style="font-weight: 700; font-size: 14px; font-family: 'Microsoft YaHei', 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #1f2937" x="289.8" y="21.99125" transform="rotate(-0 289.8 21.99125)">图 1：智学蜂巢应用场景示意图</text>
+   </g>
+  </g>
+ </g>
+</svg>

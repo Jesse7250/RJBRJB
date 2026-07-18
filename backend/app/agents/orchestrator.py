@@ -242,7 +242,7 @@ class AgentOrchestrator:
         # 2. 资源生成：调用 Generator 生成教学资源包
         async for e in emit("builder", f"正在为「{concept}」生成个性化教学资源..."):
             yield e
-        gen_result = await self._safe_run_async(self.generator, msg.with_stage("generator"), timeout=45.0)
+        gen_result = await self._safe_run_async(self.generator, msg.with_stage("generator"), timeout=90.0)
         package = gen_result.payload.get("package", {})
         if gen_result.payload.get("fallback") or not package:
             package = self._fallback_resource_package(concept)
@@ -370,79 +370,12 @@ class AgentOrchestrator:
         return explanations.get(concept, f"{concept} 是 Python 学习中的重要知识点，建议你通过讲义、练习和代码案例来掌握它。")
 
     def _fallback_resource_package(self, concept: str) -> Dict[str, Any]:
-        """构造兜底资源包，保证生成接口在 LLM 超时或熔断时仍可用于学习。"""
-        title = concept or "当前知识点"
-        document = f"""# {title}
+        """构造兜底资源包，保证生成接口在 LLM 超时或熔断时仍可用于学习。
 
-## 学习目标
-- 说清楚「{title}」解决什么问题。
-- 能够读懂一个最小示例，并指出关键语法。
-- 能够完成一道基础练习，把概念用到代码中。
-
-## 核心讲解
-「{title}」是 Python 学习路径中的一个知识点。学习时建议先看清输入、处理过程和输出结果，再逐步补充语法细节。
-
-如果你暂时没有生成到增强版讲义，可以先按下面的顺序学习：
-
-1. 先用一句话描述这个知识点的用途。
-2. 再运行一个最小示例，观察输出结果。
-3. 最后修改示例中的一个变量或条件，验证自己是否真正理解。
-
-## 常见错误
-- 只记住语法形式，没有理解代码执行顺序。
-- 没有区分变量名、字符串和值本身。
-- 代码缩进或符号写错，导致运行结果和预期不同。
-
-## 学习建议
-先完成基础练习，再进入代码沙箱做一次改写。等 DeepSeek 增强生成完成后，可以重新生成更完整的个性化资源。
-"""
-        mindmap = f"""mindmap
-  root(({title}))
-    学习目标
-      理解用途
-      掌握语法
-      能够应用
-    核心步骤
-      阅读示例
-      运行观察
-      修改验证
-    常见错误
-      概念混淆
-      语法疏漏
-      缩进问题
-"""
-        return {
-            "concept": title,
-            "document": document,
-            "mindmap": mindmap,
-            "exercises": [
-                {
-                    "id": "fallback-1",
-                    "type": "short_answer",
-                    "question": f"请用自己的话解释「{title}」在 Python 中主要解决什么问题。",
-                    "answer": f"围绕「{title}」说明它的用途、基本语法和一个应用场景即可。",
-                    "expected_output": "",
-                },
-                {
-                    "id": "fallback-2",
-                    "type": "coding",
-                    "question": f"写一个最小 Python 示例，展示「{title}」的基本用法。",
-                    "answer": "# 根据当前知识点写出一个可运行的最小示例，并说明输出结果。",
-                    "expected_output": "",
-                },
-            ],
-            "code_cases": [
-                {
-                    "title": f"{title} 最小示例",
-                    "description": "用于先跑通基础概念，再逐步修改观察结果。",
-                    "code": "print('先运行一个最小示例，再替换为当前知识点代码')",
-                    "explanation": "这是超时兜底示例。重新生成增强版资源后，会替换为更贴合知识点的代码案例。",
-                }
-            ],
-            "audio_text": f"这一节我们先用基础方式学习{title}。请先理解它的用途，再运行一个最小示例，最后通过改写代码检查自己是否掌握。",
-            "fallback": True,
-            "fallback_reason": "llm_timeout_or_degraded",
-        }
+        使用 GeneratorAgent 基于知识图谱约束生成有实质内容的讲义、导图和练习，
+        而不是以前的空泛模板。
+        """
+        return GeneratorAgent().build_fallback_package(concept)
 
     def _fast_review_report(self, package: Dict[str, Any]) -> Dict[str, Any]:
         has_document = bool(package.get("document"))
@@ -507,7 +440,7 @@ class AgentOrchestrator:
 
         # 2. 资源生成
         gen_msg = msg.with_stage("generator")
-        gen_result = self._safe_run(self.generator, gen_msg, timeout=45.0)
+        gen_result = self._safe_run(self.generator, gen_msg, timeout=90.0)
         package = gen_result.payload.get("package")
         if not package:
             package = self._fallback_resource_package(concept)

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { motion } from 'framer-motion'
 import { AudioLines, BookOpen, BookOpenText, Loader2, MonitorPlay, Play, RefreshCw, Route, Send, Sparkles } from 'lucide-react'
 import type {
@@ -170,24 +170,44 @@ function RichLearningText({ title, content, tone = 'paper' }: { title?: string; 
 }
 
 function MindmapReadable({ content }: { content?: string }) {
-  const lines = String(content || '').split('\n').map((line) => line.trim()).filter(Boolean)
-  const nodes = lines
-    .filter((line) => !/^graph|^mindmap/i.test(line))
-    .map((line) => line.replace(/-->|---|:::.+$/g, ' -> ').replace(/\s+/g, ' ').trim())
-    .filter(Boolean)
-    .slice(0, 10)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const render = async () => {
+      if (!containerRef.current) return
+      const source = String(content || '').trim()
+      if (!source) {
+        containerRef.current.innerHTML = '<p class="text-sm text-slate-500">后端未返回导图内容。</p>'
+        return
+      }
+      try {
+        const mermaid = (await import('mermaid')).default
+        mermaid.initialize({ startOnLoad: false, theme: 'default' })
+        const id = `mindmap-${Math.random().toString(36).slice(2)}`
+        const { svg } = await mermaid.render(id, source)
+        containerRef.current.innerHTML = svg
+        setError(null)
+      } catch (err) {
+        setError(String(err))
+        containerRef.current.innerHTML = `<pre class="text-xs text-red-500">${String(err)}</pre>`
+      }
+    }
+    render()
+  }, [content])
 
   return (
     <div className="mindmap-reader">
-      <div className="mindmap-node-cloud">
-        {(nodes.length ? nodes : ['暂无导图节点']).map((line, index) => (
-          <span key={`${line}-${index}`}>{line}</span>
-        ))}
-      </div>
-      <details className="resource-raw-details">
-        <summary>查看 Mermaid 原始导图</summary>
-        <pre className="readable-code">{content || '后端未返回导图内容。'}</pre>
-      </details>
+      <div
+        ref={containerRef}
+        className="flex justify-center overflow-auto rounded-2xl border border-slate-100 bg-slate-50/50 p-4"
+      />
+      {error && (
+        <details className="resource-raw-details">
+          <summary>查看 Mermaid 原始导图</summary>
+          <pre className="readable-code">{content || '后端未返回导图内容。'}</pre>
+        </details>
+      )}
     </div>
   )
 }

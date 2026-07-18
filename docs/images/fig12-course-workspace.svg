@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="410.263937pt" height="300.807187pt" viewBox="0 0 410.263937 300.807187" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:date>2026-07-15T23:08:39.552187</dc:date>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.10.8, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 300.807187 
+L 410.263937 300.807187 
+L 410.263937 0 
+L 0 0 
+z
+" style="fill: #ffffff"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 20.322369 275.266259 
+L 52.463169 275.266259 
+Q 60.498369 275.266259 60.498369 269.944019 
+L 60.498369 57.054419 
+Q 60.498369 51.732179 52.463169 51.732179 
+L 20.322369 51.732179 
+Q 12.287169 51.732179 12.287169 57.054419 
+L 12.287169 269.944019 
+Q 12.287169 275.266259 20.322369 275.266259 
+z
+" clip-path="url(#p7dcefe2bf7)" style="fill: #b4c0e4; stroke: #4d4d4d; stroke-width: 1.2; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_3">
+    <path d="M 76.568769 78.343379 
+L 389.941569 78.343379 
+Q 397.976769 78.343379 397.976769 73.021139 
+L 397.976769 57.054419 
+Q 397.976769 51.732179 389.941569 51.732179 
+L 76.568769 51.732179 
+Q 68.533569 51.732179 68.533569 57.054419 
+L 68.533569 73.021139 
+Q 68.533569 78.343379 76.568769 78.343379 
+z
+" clip-path="url(#p7dcefe2bf7)" style="fill: #7884b4; stroke: #4d4d4d; stroke-width: 1.2; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_4">
+    <path d="M 76.568769 248.655059 
+L 269.413569 248.655059 
+Q 277.448769 248.655059 277.448769 243.332819 
+L 277.448769 88.987859 
+Q 277.448769 83.665619 269.413569 83.665619 
+L 76.568769 83.665619 
+Q 68.533569 83.665619 68.533569 88.987859 
+L 68.533569 243.332819 
+Q 68.533569 248.655059 76.568769 248.655059 
+z
+" clip-path="url(#p7dcefe2bf7)" style="fill: #f0c0cc; stroke: #4d4d4d; stroke-width: 1.2; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_5">
+    <path d="M 293.519169 158.176979 
+L 389.941569 158.176979 
+Q 397.976769 158.176979 397.976769 152.854739 
+L 397.976769 88.987859 
+Q 397.976769 83.665619 389.941569 83.665619 
+L 293.519169 83.665619 
+Q 285.483969 83.665619 285.483969 88.987859 
+L 285.483969 152.854739 
+Q 285.483969 158.176979 293.519169 158.176979 
+z
+" clip-path="url(#p7dcefe2bf7)" style="fill: #3775ba; stroke: #4d4d4d; stroke-width: 1.2; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_6">
+    <path d="M 293.519169 248.655059 
+L 389.941569 248.655059 
+Q 397.976769 248.655059 397.976769 243.332819 
+L 397.976769 174.143699 
+Q 397.976769 168.821459 389.941569 168.821459 
+L 293.519169 168.821459 
+Q 285.483969 168.821459 285.483969 174.143699 
+L 285.483969 243.332819 
+Q 285.483969 248.655059 293.519169 248.655059 
+z
+" clip-path="url(#p7dcefe2bf7)" style="fill: #9a4d8e; stroke: #4d4d4d; stroke-width: 1.2; stroke-linejoin: miter"/>
+   </g>
+   <g id="text_1">
+    <text style="font-weight: 700; font-size: 8px; font-family: 'Microsoft YaHei', 'Arial', 'Helvetica', 'DejaVu Sans', 'Liberation Sans', sans-serif; fill: #ffffff" transform="translate(28.392769 136.714094)">导航</text>
+    <text style="font-weight: 700; font-size: 8px; font-family: 'Microsoft YaHei', 'Arial', 'Helvetica', 'DejaVu Sans', 'Liberation Sans', sans-serif; fill: #ffffff" transform="translate(28.392769 146.376844)">画像</text>
+    <text style="font-weight: 700; font-size: 8px; font-family: 'Microsoft YaHei', 'Arial', 'Helvetica', 'DejaVu Sans', 'Liberation Sans', sans-serif; fill: #ffffff" transform="translate(28.392769 156.039594)">图谱</text>
+    <text style="font-weight: 700; font-size: 8px; font-family: 'Microsoft YaHei', 'Arial', 'Helvetica', 'DejaVu Sans', 'Liberation Sans', sans-serif; fill: #ffffff" transform="translate(28.392769 165.702344)">资源</text>
+    <text style="font-weight: 700; font-size: 8px; font-family: 'Microsoft YaHei', 'Arial', 'Helvetica', 'DejaVu Sans', 'Liberation Sans', sans-serif; fill: #ffffff" transform="translate(28.392769 175.365094)">对话</text>
+    <text style="font-weight: 700; font-size: 8px; font-family: 'Microsoft YaHei', 'Arial', 'Helvetica', 'DejaVu Sans', 'Liberation Sans', sans-serif; fill: #ffffff" transform="translate(28.392769 185.027844)">沙箱</text>
+    <text style="font-weight: 700; font-size: 8px; font-family: 'Microsoft YaHei', 'Arial', 'Helvetica', 'DejaVu Sans', 'Liberation Sans', sans-serif; fill: #ffffff" transform="translate(28.392769 194.690594)">进度</text>
+   </g>
+   <g id="text_2">
+    <text style="font-weight: 700; font-size: 9px; font-family: 'Microsoft YaHei', 'Arial', 'Helvetica', 'DejaVu Sans', 'Liberation Sans', sans-serif; text-anchor: middle; fill: #ffffff" x="233.255169" y="67.516294" transform="rotate(-0 233.255169 67.516294)">目标：文件操作    会话 ID: ...</text>
+   </g>
+   <g id="text_3">
+    <text style="font-weight: 700; font-size: 11px; font-family: 'Microsoft YaHei', 'Arial', 'Helvetica', 'DejaVu Sans', 'Liberation Sans', sans-serif; fill: #ffffff" transform="translate(145.491169 162.546495)">学习资源区</text>
+    <text style="font-weight: 700; font-size: 11px; font-family: 'Microsoft YaHei', 'Arial', 'Helvetica', 'DejaVu Sans', 'Liberation Sans', sans-serif; fill: #ffffff" transform="translate(135.704606 175.832776)">(认知风格切换)</text>
+   </g>
+   <g id="text_4">
+    <text style="font-weight: 700; font-size: 8px; font-family: 'Microsoft YaHei', 'Arial', 'Helvetica', 'DejaVu Sans', 'Liberation Sans', sans-serif; fill: #ffffff" transform="translate(312.296619 118.425549)">Agent 协作追踪</text>
+    <text style="font-weight: 700; font-size: 8px; font-family: 'Microsoft YaHei', 'Arial', 'Helvetica', 'DejaVu Sans', 'Liberation Sans', sans-serif; fill: #ffffff" transform="translate(289.617869 128.127049)">Orchestrator · Profiler · ...</text>
+   </g>
+   <g id="text_5">
+    <text style="font-weight: 700; font-size: 8px; font-family: 'Microsoft YaHei', 'Arial', 'Helvetica', 'DejaVu Sans', 'Liberation Sans', sans-serif; fill: #ffffff" transform="translate(321.730369 206.110009)">数字人助教</text>
+    <text style="font-weight: 700; font-size: 8px; font-family: 'Microsoft YaHei', 'Arial', 'Helvetica', 'DejaVu Sans', 'Liberation Sans', sans-serif; fill: #ffffff" transform="translate(305.589744 215.772759)">语音讲解 · 语速控制</text>
+   </g>
+   <g id="text_6">
+    <g id="patch_7">
+     <path d="M 130.746637 154.679556 
+L 215.2357 154.679556 
+Q 217.2357 154.679556 217.2357 152.679556 
+L 217.2357 130.121431 
+Q 217.2357 128.121431 215.2357 128.121431 
+L 130.746637 128.121431 
+Q 128.746637 128.121431 128.746637 130.121431 
+L 128.746637 152.679556 
+Q 128.746637 154.679556 130.746637 154.679556 
+z
+" style="fill: #ffffff; stroke: #4d4d4d; stroke-linejoin: miter"/>
+    </g>
+    <text style="font-size: 10px; font-family: 'Microsoft YaHei', 'Arial', 'Helvetica', 'DejaVu Sans', 'Liberation Sans', sans-serif; fill: #272727" transform="translate(130.746637 138.115181)">Command Center</text>
+    <text style="font-size: 10px; font-family: 'Microsoft YaHei', 'Arial', 'Helvetica', 'DejaVu Sans', 'Liberation Sans', sans-serif; fill: #272727" transform="translate(147.991169 150.193619)">课程工作台</text>
+   </g>
+   <g id="text_7">
+    <text style="font-weight: 700; font-size: 14px; font-family: 'Microsoft YaHei', 'Arial', 'Helvetica', 'DejaVu Sans', 'Liberation Sans', sans-serif; text-anchor: middle" x="205.131969" y="15.443219" transform="rotate(-0 205.131969 15.443219)">图 12：课程工作台主界面</text>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="p7dcefe2bf7">
+   <rect x="4.251969" y="30.443219" width="401.76" height="266.112"/>
+  </clipPath>
+ </defs>
+</svg>

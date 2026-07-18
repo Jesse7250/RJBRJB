@@ -75,7 +75,7 @@ class BaseAgent:
     def __init__(self, llm: Optional[BaseLLM] = None):
         self.llm = llm or get_llm_provider()
 
-    def think(self, user_prompt: str, context: Optional[Dict[str, Any]] = None) -> str:
+    def think(self, user_prompt: str, context: Optional[Dict[str, Any]] = None, max_tokens: int = 4096) -> str:
         """调用 LLM 获取回复：system_prompt + 可选上下文 + 用户输入"""
         messages = [{"role": "system", "content": self.system_prompt}]
         if context:
@@ -85,7 +85,7 @@ class BaseAgent:
                 "content": f"上下文信息：{self._format_context(context)}",
             })
         messages.append({"role": "user", "content": user_prompt})
-        return self.llm.chat(messages)
+        return self.llm.chat(messages, max_tokens=max_tokens)
 
     def _format_context(self, context: Dict[str, Any]) -> str:
         """将上下文格式化为字符串"""
