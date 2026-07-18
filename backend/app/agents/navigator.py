@@ -1,4 +1,4 @@
-"""Navigator Agent：学习路径规划
+﻿"""Navigator Agent：学习路径规划
 
 对应需求/功能：
 - 基于知识图谱前置依赖与学生已掌握知识点，规划从当前状态到目标知识点的最优学习路径。
@@ -131,3 +131,4 @@ class NavigatorAgent(BaseAgent):
             except json.JSONDecodeError:
                 pass
         return None
+

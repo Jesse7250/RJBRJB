@@ -1,4 +1,4 @@
-"""Debate Council：Reviewer 内部的 4 视角审核模块
+﻿"""Debate Council：Reviewer 内部的 4 视角审核模块
 
 对应需求/功能：
 - 作为 ReviewerAgent 的内部模块，对 Generator 生成的教学资源进行多视角审核。
@@ -241,3 +241,4 @@ class DebateCouncil:
             rounds=[round_obj],
             final_votes={"Guardian": result["verdict"]},
         )
+

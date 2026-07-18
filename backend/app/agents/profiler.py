@@ -1,4 +1,4 @@
-"""Profiler Agent：对话式学生画像构建
+﻿"""Profiler Agent：对话式学生画像构建
 
 对应需求/功能：
 - 通过自然语言对话自动推断和更新学生画像，避免让学生感受到被测试。
@@ -242,3 +242,4 @@ class ProfilerAgent(BaseAgent):
         if intent == "PROGRESS_CHECK":
             return f"你目前已经掌握了 {len(profile.mastered_concepts)} 个知识点，继续保持！"
         return "收到，我会根据你的特点调整后续学习内容。"
+

@@ -1,4 +1,4 @@
-"""学习效果评估 API
+﻿"""学习效果评估 API
 
 提供：
 1. GET /api/evaluation/heatmap?session_id=xxx — 掌握度热力图数据
@@ -128,3 +128,4 @@ async def analyze_mastery(
             f"薄弱 {len(weak_points)} 个。"
         ),
     }
+

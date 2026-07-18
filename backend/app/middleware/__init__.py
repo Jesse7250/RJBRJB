@@ -1,4 +1,4 @@
-"""中间件包
+﻿"""中间件包
 
 对应需求：
 - 统一导出项目中注册到 FastAPI 应用的中间件，简化 main.py 的导入。
@@ -14,3 +14,4 @@ TODO:
 from app.middleware.logging import RequestLoggingMiddleware, setup_logging
 
 __all__ = ["RequestLoggingMiddleware", "setup_logging"]
+

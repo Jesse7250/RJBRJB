@@ -1,4 +1,4 @@
-"""Knowledge Furnace：知识熔炉自动触发与版本演进服务
+﻿"""Knowledge Furnace：知识熔炉自动触发与版本演进服务
 
 对应需求/功能：
 - 根据群体代码提交错误率自动触发资源重审，持续改进某知识点的教学资源。
@@ -189,3 +189,4 @@ def trigger_resource_review(
             "triggered_by": triggered_by,
             "error": str(e),
         }
+

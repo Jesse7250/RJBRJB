@@ -1,4 +1,4 @@
-"""A* 学习路径规划器
+﻿"""A* 学习路径规划器
 
 基于知识图谱前置依赖关系与学生已掌握知识点，使用 A* 算法计算从当前状态
 到目标知识点的最优学习路径。
@@ -171,3 +171,4 @@ def _fallback_reverse_path(
 def compute_edge_cost(strength: float) -> float:
     """根据依赖强度计算边代价"""
     return max(0.1, 2.0 - float(strength))
+

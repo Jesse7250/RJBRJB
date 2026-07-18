@@ -1,4 +1,4 @@
-"""Neo4j 知识图谱服务
+﻿"""Neo4j 知识图谱服务
 
 对应需求：
 - 在生产环境中使用 Neo4j 持久化存储知识点、依赖关系与易错点。
@@ -188,3 +188,4 @@ def get_neo4j_client() -> Neo4jClient:
     if _neo4j_client is None:
         _neo4j_client = Neo4jClient()
     return _neo4j_client
+

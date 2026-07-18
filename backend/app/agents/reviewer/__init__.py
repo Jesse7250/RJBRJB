@@ -1,4 +1,4 @@
-"""Reviewer 包：审核 + 辅导 + 评估三位一体
+﻿"""Reviewer 包：审核 + 辅导 + 评估三位一体
 
 对应需求/功能：
 - Reviewer Agent 的内部子模块包，对外统一暴露 ReviewerAgent。
@@ -23,3 +23,4 @@ from app.agents.reviewer.reviewer_agent import ReviewerAgent
 from app.agents.reviewer.socrates import SocratesTutor
 
 __all__ = ["ReviewerAgent", "DebateCouncil", "SocratesTutor", "LearningEvaluator"]
+

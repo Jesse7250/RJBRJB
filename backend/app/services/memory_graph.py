@@ -1,4 +1,4 @@
-"""内存知识图谱实现
+﻿"""内存知识图谱实现
 
 对应需求：
 - 在无 Neo4j 的运行环境（开发/测试/单机部署）中提供知识图谱能力。
@@ -329,3 +329,4 @@ class MemoryGraph(GraphStore):
         for e in self.prerequisite_edges:
             graph[e["target"]].add(e["source"])
         return graph
+

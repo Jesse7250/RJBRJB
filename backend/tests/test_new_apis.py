@@ -12,10 +12,10 @@ from app.main import app
 client = TestClient(app)
 
 
-def _register_user():
+def _register_user(role="student"):
     import uuid
-    username = f"user_{uuid.uuid4().hex[:8]}"
-    r = client.post("/api/auth/register", json={"username": username, "password": "123456"})
+    username = f"{role}_{uuid.uuid4().hex[:8]}"
+    r = client.post("/api/auth/register", json={"username": username, "password": "123456", "role": role})
     assert r.status_code == 200
     return r.json()["access_token"], username
 
@@ -50,7 +50,8 @@ def test_learning_plan():
 
 
 def test_admin_stats():
-    r = client.get("/api/admin/stats")
+    token, _ = _register_user("admin")
+    r = client.get("/api/admin/stats", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 200
     stats = r.json()["stats"]
     assert "sessions" in stats

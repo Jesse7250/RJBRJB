@@ -1,4 +1,4 @@
-"""Python 代码执行器。
+﻿"""Python 代码执行器。
 
 提供轻量级本地沙箱能力：
 - 使用 AST 做基础安全检查；
@@ -254,3 +254,4 @@ class CodeExecutor:
             "expected_output": expected,
             "reason": "通过" if passed else "输出不匹配",
         }
+

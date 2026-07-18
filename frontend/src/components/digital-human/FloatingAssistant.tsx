@@ -23,6 +23,7 @@ import type { NavKey } from '@/components/command-center/types'
 interface Props {
   activeNav: NavKey
   selectedConcept: string
+  roleContext?: 'student' | 'teacher' | 'admin'
 }
 
 interface ChatMsg {
@@ -34,6 +35,7 @@ type AssistantGender = 'male' | 'female'
 type PanelSide = 'left' | 'right'
 type PanelVertical = 'top' | 'bottom'
 type DockSide = 'left' | 'right'
+type AssistantRole = NonNullable<Props['roleContext']>
 
 const ASSISTANT_META: Record<AssistantGender, { name: string; image: string; voice: string; label: string }> = {
   male: {
@@ -50,46 +52,97 @@ const ASSISTANT_META: Record<AssistantGender, { name: string; image: string; voi
   },
 }
 
-const GUIDANCE: Record<NavKey, { title: string; text: string; quick: string[] }> = {
+const STUDENT_GUIDANCE: Record<NavKey, { title: string; text: string; quick: string[]; empty: string; placeholder: string }> = {
   profile: {
     title: '学习画像',
-    text: '这里汇总你的知识水平、学习节奏、认知偏好和当前目标。你可以让我解释画像含义，或帮你判断下一步该补哪一块。',
-    quick: ['我的画像说明了什么？', '我下一步该学什么？', '怎么提升当前目标？'],
+    text: '这里汇总你的知识水平、学习节奏、呈现偏好和当前目标。你可以让我解释画像字段，或帮你判断下一步该补哪一块。',
+    quick: ['我的画像说明什么？', '下一步学什么？', '怎么提升当前目标？'],
+    empty: '你可以问我当前页面怎么用，也可以让我解释画像里的某个指标。',
+    placeholder: '咨询画像、目标或学习建议...',
   },
   graph: {
     title: '知识图谱',
-    text: '这里展示课程知识点之间的依赖关系。你可以让我解释某个节点、规划到目标节点的路径，或说明路径为什么这样安排。',
-    quick: ['解释当前节点', '帮我规划学习路径', '路径上的重点是什么？'],
+    text: '这里展示课程知识点之间的依赖关系。你可以让我解释节点、路径，或说明为什么系统这样安排学习顺序。',
+    quick: ['解释当前节点', '帮我规划学习路径', '路径重点是什么？'],
+    empty: '你可以问我某个知识点的作用，也可以让我解释当前路径。',
+    placeholder: '咨询知识点、路径或节点含义...',
   },
   resources: {
     title: '学习资源',
-    text: '这里可以查看讲义、导图、练习、案例和审核报告。你可以让我用更容易理解的方式解释资源内容。',
+    text: '这里可以查看讲义、导图、练习、案例、讲解和审核报告。你可以让我用更容易理解的方式解释资源内容。',
     quick: ['总结当前讲义', '练习题怎么做？', '给我一个学习建议'],
+    empty: '你可以问我当前页面怎么用，也可以直接描述学习中卡住的地方。',
+    placeholder: '打字或点麦克风提问...',
   },
   chat: {
     title: '学习对话',
-    text: '这里适合提问、追问和进行苏格拉底式引导。你可以先描述卡住的地方，我会尽量引导你自己找到答案。',
+    text: '这里适合提出具体学习问题和代码困惑。遇到知识难点时，我会尽量引导你梳理原因，而不是直接替你跳到答案。',
     quick: ['请引导我思考', '我哪里理解错了？', '换个例子讲讲'],
+    empty: '你可以说出具体卡点，我会帮你把问题拆开。',
+    placeholder: '描述你的学习问题...',
   },
   code: {
     title: '代码沙箱',
-    text: '这里可以运行 Python 代码并查看输出与变量。你可以把报错或思路发给我，我会帮你定位问题。',
-    quick: ['解释这段代码', '为什么运行报错？', '给我一个调试步骤'],
+    text: '这里可以运行 Python 代码并查看输出、错误和变量快照。你可以把报错或思路发给我，我会帮你定位问题。',
+    quick: ['解释这段代码', '为什么运行报错？', '给我调试步骤'],
+    empty: '你可以把报错、代码片段或运行现象告诉我。',
+    placeholder: '咨询代码运行、报错或调试...',
   },
   progress: {
     title: '掌握进度',
-    text: '这里展示知识点掌握度、热力图和 BKT 分析。你可以让我解释薄弱点，或生成复习顺序。',
-    quick: ['解释掌握度', '我的薄弱点在哪？', '生成复习顺序'],
+    text: '这里展示知识点掌握度、热力图和复习建议。我可以用更直白的话解释颜色、概率和薄弱点。',
+    quick: ['解释掌握度', '薄弱点在哪？', '生成复习顺序'],
+    empty: '你可以问我某个指标代表什么，或让系统给你复习建议。',
+    placeholder: '咨询掌握度、热力图或复习安排...',
   },
 }
 
-const FALLBACK_TIPS = [
-  '可以把当前卡住的问题直接发给我。',
-  '也可以让我解释当前页面里的按钮和数据含义。',
-  '如果内容太难，我可以换一种更具体的例子讲。',
-]
+const ROLE_GUIDANCE: Record<AssistantRole, { title: string; text: string; quick: string[]; empty: string; placeholder: string; reminderTitle: string }> = {
+  student: {
+    title: '课程导学',
+    text: '',
+    quick: [],
+    empty: '',
+    placeholder: '',
+    reminderTitle: '学习提醒',
+  },
+  teacher: {
+    title: '教师工作台',
+    text: '这里用于创建课程、查看本人负责的课程记录，并维护课程发布状态。你可以直接把想新增的课程或想调整的状态告诉我。',
+    quick: ['怎么创建课程？', '如何发布课程？', '为什么保存失败？'],
+    empty: '你可以问我教师端怎么用，也可以描述课程创建、保存或发布时遇到的问题。',
+    placeholder: '咨询课程创建、保存或发布...',
+    reminderTitle: '工作提醒',
+  },
+  admin: {
+    title: '管理后台',
+    text: '这里用于查看用户、课程和平台统计，并维护课程状态。管理员入口不进入学生课程学习流。',
+    quick: ['怎么查看用户角色？', '如何管理课程状态？', '后台数据从哪来？'],
+    empty: '你可以问我管理端怎么用，也可以让我解释用户、课程或统计数据。',
+    placeholder: '咨询用户、课程或系统数据...',
+    reminderTitle: '管理提醒',
+  },
+}
 
-export function FloatingAssistant({ activeNav, selectedConcept }: Props) {
+const FALLBACK_TIPS: Record<AssistantRole, string[]> = {
+  student: [
+    '可以把当前卡住的问题直接发给我。',
+    '也可以让我解释当前页面里的按钮和数据含义。',
+    '如果内容太难，我可以换一种更具体的例子讲。',
+  ],
+  teacher: [
+    '教师端目前支持课程创建、课程列表读取和课程状态维护。',
+    '保存失败时，可以确认自己是否使用教师账号登录。',
+    '课程资料上传后，已发布课程会在学生侧展示资料入口。',
+  ],
+  admin: [
+    '管理端可以查看平台账号、课程和统计概览。',
+    '可以查看用户角色，也可以维护课程状态。',
+    '如果加载异常，先确认自己是否使用管理员账号登录。',
+  ],
+}
+
+export function FloatingAssistant({ activeNav, selectedConcept, roleContext = 'student' }: Props) {
   const { speaking, source, sparkAvailable, lastError, speak: ttsSpeak, stop: ttsStop } = useSparkTTS()
   const { listening, supported: micSupported, start: startListen, stop: stopListen } = useSpeechRecognition('zh-CN')
   const [expanded, setExpanded] = useState(true)
@@ -115,8 +168,11 @@ export function FloatingAssistant({ activeNav, selectedConcept }: Props) {
   const dragControls = useDragControls()
 
   const assistant = ASSISTANT_META[assistantGender]
-  const guidance = GUIDANCE[activeNav] || GUIDANCE.resources
-  const targetLabel = selectedConcept || '当前学习目标'
+  const pageGuidance = STUDENT_GUIDANCE[activeNav] || STUDENT_GUIDANCE.resources
+  const roleGuidance = ROLE_GUIDANCE[roleContext]
+  const guidance = roleContext === 'student' ? pageGuidance : roleGuidance
+  const tips = FALLBACK_TIPS[roleContext]
+  const targetLabel = selectedConcept || (roleContext === 'student' ? '当前学习目标' : roleGuidance.title)
   const guideText = `你现在位于${guidance.title}页面，当前关注的是${targetLabel}。${guidance.text}`
 
   const scrollChatToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
@@ -146,13 +202,13 @@ export function FloatingAssistant({ activeNav, selectedConcept }: Props) {
   useEffect(() => {
     const timer = setInterval(() => {
       if (!expanded) {
-        setTipIndex((index) => (index + 1) % FALLBACK_TIPS.length)
+        setTipIndex((index) => (index + 1) % tips.length)
         setShowTip(true)
         window.setTimeout(() => setShowTip(false), 5000)
       }
     }, 60000)
     return () => clearInterval(timer)
-  }, [expanded])
+  }, [expanded, tips.length])
 
   useEffect(() => {
     const frame = requestAnimationFrame(updatePanelPlacement)
@@ -216,16 +272,20 @@ export function FloatingAssistant({ activeNav, selectedConcept }: Props) {
       setChatMessages((prev) => [...prev, { role: 'user', text: q }])
       setLoading(true)
       try {
-        const response = await assistantApi.ask(q)
-        const answer = response.data?.answer || '抱歉，我暂时无法回答这个问题。'
+        const response = await assistantApi.ask(q, {
+          role_context: roleContext,
+          page_context: guidance.title,
+          selected_concept: targetLabel,
+        })
+        const answer = response.data?.answer || '我已经收到你的问题，但当前没有可展示的回答。'
         setChatMessages((prev) => [...prev, { role: 'assistant', text: answer }])
       } catch {
-        setChatMessages((prev) => [...prev, { role: 'assistant', text: '抱歉，数字人助教服务暂时不可用。' }])
+        setChatMessages((prev) => [...prev, { role: 'assistant', text: '抱歉，数字人助理服务暂时不可用。请确认后端服务已启动。' }])
       } finally {
         setLoading(false)
       }
     },
-    [input, loading, updatePanelPlacement],
+    [guidance.title, input, loading, roleContext, targetLabel, updatePanelPlacement],
   )
 
   const handleVoiceResult = useCallback(
@@ -306,20 +366,20 @@ export function FloatingAssistant({ activeNav, selectedConcept }: Props) {
       exit={{ opacity: 0, scale: 0.92, y: 16 }}
       className={cn('floating-assistant-panel', fullscreen && 'is-fullscreen')}
       onPointerDown={(event) => event.stopPropagation()}
-      aria-label="数字人助教窗口"
+      aria-label="数字人助理窗口"
     >
       <header className="floating-assistant-header">
         <div className="floating-assistant-avatar">
-          <img className={`is-${assistantGender}`} src={assistant.image} alt={`${assistant.label}数字人助教`} draggable={false} />
+          <img className={`is-${assistantGender}`} src={assistant.image} alt={`${assistant.label}数字人助理`} draggable={false} />
           <span className={cn(speaking && 'active')} />
         </div>
         <div className="floating-assistant-title">
-          <span><Sparkles className="h-3.5 w-3.5" /> 数字人助教</span>
+          <span><Sparkles className="h-3.5 w-3.5" /> 数字人助理</span>
           <strong>{assistant.name}</strong>
           <small>{guidance.title} · {targetLabel}</small>
         </div>
         <div className="floating-assistant-window-actions">
-          <button type="button" onClick={() => setFullscreen((value) => !value)} title={fullscreen ? '退出大窗' : '放大窗口'}>
+          <button type="button" onClick={() => setFullscreen((value) => !value)} title={fullscreen ? '退出大窗口' : '放大窗口'}>
             {fullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
           </button>
           <button type="button" onClick={() => { setExpanded(false); setFullscreen(false) }} title="收起数字人">
@@ -354,7 +414,7 @@ export function FloatingAssistant({ activeNav, selectedConcept }: Props) {
         {chatMessages.length === 0 && (
           <div className="floating-assistant-empty">
             <MessageCircle className="h-4 w-4" />
-            <span>你可以问我当前页面怎么用，也可以直接描述学习中卡住的地方。</span>
+            <span>{guidance.empty}</span>
           </div>
         )}
         {chatMessages.map((message, index) => (
@@ -379,8 +439,8 @@ export function FloatingAssistant({ activeNav, selectedConcept }: Props) {
       {showReminder && (
         <div className="floating-assistant-reminder">
           <div>
-            <strong>学习提醒</strong>
-            <span>你已经学习 {sessionMinutes} 分钟，可以短暂休息后再继续。</span>
+            <strong>{roleGuidance.reminderTitle}</strong>
+            <span>你已经停留 {sessionMinutes} 分钟，可以回顾当前页面的下一步操作。</span>
           </div>
           <button type="button" onClick={() => setShowReminder(false)}><X className="h-3.5 w-3.5" /></button>
         </div>
@@ -399,7 +459,7 @@ export function FloatingAssistant({ activeNav, selectedConcept }: Props) {
             onKeyDown={(event) => {
               if (event.key === 'Enter') void sendQuestion()
             }}
-            placeholder={micSupported ? '打字或点麦克风提问...' : '问数字人助教任何问题...'}
+            placeholder={micSupported ? guidance.placeholder : '输入你想咨询的问题...'}
           />
         )}
         {micSupported && (
@@ -466,7 +526,7 @@ export function FloatingAssistant({ activeNav, selectedConcept }: Props) {
                 className="floating-assistant-tip"
                 onPointerDown={(event) => event.stopPropagation()}
               >
-                {FALLBACK_TIPS[tipIndex]}
+                {tips[tipIndex]}
               </motion.div>
             )}
           </AnimatePresence>
@@ -478,7 +538,7 @@ export function FloatingAssistant({ activeNav, selectedConcept }: Props) {
           <button
             type="button"
             className={cn('floating-assistant-trigger', speaking && 'is-speaking')}
-            aria-label="打开数字人助教"
+            aria-label="打开数字人助理"
             onPointerDown={handleTriggerPointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}

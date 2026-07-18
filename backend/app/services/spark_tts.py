@@ -1,4 +1,4 @@
-"""iFlytek online TTS client.
+﻿"""iFlytek online TTS client.
 
 This client uses the classic iFlytek REST TTS endpoint:
 https://api.xfyun.cn/v1/service/v1/tts
@@ -118,3 +118,4 @@ def get_tts_client() -> SparkTTSClient:
     if _tts_client is None:
         _tts_client = SparkTTSClient()
     return _tts_client
+

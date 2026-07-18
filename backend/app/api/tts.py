@@ -1,4 +1,4 @@
-"""TTS API endpoints."""
+﻿"""TTS API endpoints."""
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
@@ -128,3 +128,4 @@ async def tts_status():
             "api_secret": client.field_configured(client.api_secret),
         },
     }
+

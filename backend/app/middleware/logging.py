@@ -1,4 +1,4 @@
-"""请求日志与错误监控中间件
+﻿"""请求日志与错误监控中间件
 
 对应需求：
 - 统一记录每个 HTTP 请求的关键信息（方法、路径、状态码、耗时、客户端 IP）。
@@ -58,3 +58,4 @@ def setup_logging():
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
+

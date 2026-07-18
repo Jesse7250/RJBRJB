@@ -1,4 +1,4 @@
-"""iFlytek WebSocket TTS client.
+﻿"""iFlytek WebSocket TTS client.
 
 Expected endpoint:
     wss://tts-api.xfyun.cn/v2/tts
@@ -162,3 +162,4 @@ def get_tts_client() -> SparkTTSWebSocketClient:
     if _tts_client is None:
         _tts_client = SparkTTSWebSocketClient()
     return _tts_client
+

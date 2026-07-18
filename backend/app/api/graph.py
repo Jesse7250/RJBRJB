@@ -1,4 +1,4 @@
-"""知识图谱 API
+﻿"""知识图谱 API
 
 对应需求/功能：
 - 向前端提供完整的 Python 知识图谱数据（节点、边）。
@@ -231,6 +231,7 @@ async def get_graph_layout():
 
     nodes = _compute_layout(concepts, edges)
     return {"nodes": nodes, "edges": edges}
+
 
 
 

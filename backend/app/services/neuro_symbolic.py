@@ -1,4 +1,4 @@
-"""神经符号认知架构 - 约束与校验层
+﻿"""神经符号认知架构 - 约束与校验层
 
 对应需求：
 - 将大模型（神经网络）的生成能力与知识图谱（符号系统）的约束结合，
@@ -220,3 +220,4 @@ class NeuroSymbolicValidator:
             "forbidden_concepts": forbidden,
             "ast_violations": ast_violations,
         }
+

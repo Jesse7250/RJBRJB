@@ -1,5 +1,6 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type FormEvent } from 'react'
 import { motion, useMotionValue } from 'framer-motion'
+import { Fragment } from 'react'
 import {
   BarChart3,
   BookOpen,
@@ -9,7 +10,9 @@ import {
   ChevronRight,
   Code2,
   Clock3,
+  Download,
   FlaskConical,
+  FileUp,
   Hexagon,
   Home,
   Layers3,
@@ -29,20 +32,26 @@ import {
   Sparkles,
   Star,
   TerminalSquare,
+  Trash2,
   UserRound,
   Volume2,
 } from 'lucide-react'
 
 import {
   behaviorApi,
+  adminApi,
   authApi,
   codeApi,
   evaluationApi,
   graphApi,
   resourceApi,
   sessionApi,
+  teacherApi,
   type AgentResponse,
   type CodeVariable,
+  type AdminCourseRecord,
+  type CourseMaterial,
+  type CourseRecord,
   type GraphData,
   type LearningEvent,
   type LearningPlanResponse,
@@ -52,6 +61,7 @@ import {
   type ResourceVersion,
   type SessionResponse,
   type ThinkingStep,
+  type UserRole,
 } from '@/services/api'
 import { SocraticPanel } from '@/components/socratic/SocraticPanel'
 import { FloatingAssistant } from '@/components/digital-human/FloatingAssistant'
@@ -96,6 +106,8 @@ const NAV_ITEMS: Array<{ key: NavKey; label: string; icon: ComponentType<{ class
 
 type CourseCard = {
   id: string
+  backendCourseId?: string
+  workspace?: 'python' | 'materials' | 'empty'
   title: string
   category: string
   level: string
@@ -105,6 +117,42 @@ type CourseCard = {
   accent: 'teal' | 'orange' | 'blue' | 'green'
   summary: string
   tags: string[]
+}
+
+function toPublishedCourseCard(course: CourseRecord): CourseCard {
+  return {
+    id: `course-${course.course_id}`,
+    backendCourseId: course.course_id,
+    workspace: 'materials',
+    title: course.title,
+    category: course.category,
+    level: '教师发布',
+    teacher: course.teacher_username || '教师',
+    duration: '可查看资料',
+    status: 'ready',
+    accent: 'teal',
+    summary: course.summary || '教师上传的课程资料与说明。',
+    tags: ['教师发布', '资料可见'],
+  }
+}
+
+function formatFileSize(bytes: number) {
+  if (!bytes) return '0 KB'
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+function getCourseStatusLabel(status: string) {
+  switch (status) {
+    case 'published':
+      return '已发布'
+    case 'pending_review':
+      return '待审核'
+    case 'archived':
+      return '已归档'
+    default:
+      return '草稿'
+  }
 }
 
 type ResourcePanelCacheEntry = {
@@ -120,6 +168,7 @@ type ResourcePanelCacheEntry = {
 const COURSE_CATALOG: CourseCard[] = [
   {
     id: 'python',
+    workspace: 'python',
     title: 'Python 程序设计基础',
     category: '程序设计',
     level: '入门到进阶',
@@ -132,6 +181,7 @@ const COURSE_CATALOG: CourseCard[] = [
   },
   {
     id: 'data-structure',
+    workspace: 'empty',
     title: '数据结构可视化训练营',
     category: '计算机基础',
     level: '进阶',
@@ -144,6 +194,7 @@ const COURSE_CATALOG: CourseCard[] = [
   },
   {
     id: 'ai-literacy',
+    workspace: 'empty',
     title: '人工智能通识与提示词实践',
     category: 'AI 通识',
     level: '零基础',
@@ -156,6 +207,7 @@ const COURSE_CATALOG: CourseCard[] = [
   },
   {
     id: 'english-speaking',
+    workspace: 'empty',
     title: '英语口语情景对话',
     category: '语言学习',
     level: '日常交流',
@@ -168,6 +220,7 @@ const COURSE_CATALOG: CourseCard[] = [
   },
   {
     id: 'math-modeling',
+    workspace: 'empty',
     title: '数学建模方法入门',
     category: '数理基础',
     level: '竞赛预备',
@@ -180,6 +233,7 @@ const COURSE_CATALOG: CourseCard[] = [
   },
   {
     id: 'web-design',
+    workspace: 'empty',
     title: '前端交互设计基础',
     category: '软件工程',
     level: '实践课',
@@ -644,8 +698,10 @@ function extractProfileFromResponse(response?: AgentResponse | null) {
 }
 
 function App() {
-  const [courseMode, setCourseMode] = useState<'portal' | 'python' | 'empty'>(() => {
+  const [courseMode, setCourseMode] = useState<'portal' | 'python' | 'empty' | 'teacher' | 'admin'>(() => {
     if (typeof window === 'undefined') return 'portal'
+    if (window.location.hash.startsWith('#/teacher')) return 'teacher'
+    if (window.location.hash.startsWith('#/admin')) return 'admin'
     if (window.location.hash.startsWith('#/course/python')) return 'python'
     if (window.location.hash.startsWith('#/course/')) return 'empty'
     return 'portal'
@@ -699,12 +755,18 @@ function App() {
   const [codeLoading, setCodeLoading] = useState(false)
   const [resourceStatus, setResourceStatus] = useState('资源生成接口待命')
   const [resourceLoading, setResourceLoading] = useState(false)
+  const [publishedCourseCards, setPublishedCourseCards] = useState<CourseCard[]>([])
   const resourcePanelCacheRef = useRef<Map<string, ResourcePanelCacheEntry>>(new Map())
   const resourcePanelPendingRef = useRef<Map<string, Promise<ResourcePanelCacheEntry>>>(new Map())
   const [authUser, setAuthUser] = useState(() => {
     if (typeof window === 'undefined') return ''
     return window.localStorage.getItem('eduhive.username') ?? ''
   })
+  const [authRole, setAuthRole] = useState<UserRole>(() => {
+    if (typeof window === 'undefined') return 'student'
+    return (window.localStorage.getItem('eduhive.role') as UserRole) || 'student'
+  })
+  const [loginRole, setLoginRole] = useState<UserRole>('student')
 
   useEffect(() => {
     styleModeRef.current = styleMode
@@ -746,14 +808,38 @@ function App() {
   const [loginMode, setLoginMode] = useState<'login' | 'register'>('login')
   const [authLoading, setAuthLoading] = useState(false)
   const [loginStatus, setLoginStatus] = useState(() => {
-    if (typeof window === 'undefined') return '请使用后端账号登录。'
+    if (typeof window === 'undefined') return '请登录账号。'
     const savedUser = window.localStorage.getItem('eduhive.username')
-    return savedUser ? `已登录：${savedUser}` : '请使用后端账号登录。'
+    return savedUser ? `已登录：${savedUser}` : '请登录账号。'
   })
+
+  useEffect(() => {
+    let cancelled = false
+    teacherApi.getPublishedCourses()
+      .then((res) => {
+        if (!cancelled) {
+          setPublishedCourseCards(res.data.courses.map(toPublishedCourseCard))
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setPublishedCourseCards([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     const syncRoute = () => {
       const hash = window.location.hash || '#/portal'
+      if (hash.startsWith('#/teacher')) {
+        setCourseMode('teacher')
+        return
+      }
+      if (hash.startsWith('#/admin')) {
+        setCourseMode('admin')
+        return
+      }
       if (hash === '#/portal' || hash === '#/' || hash === '') {
         setCourseMode('portal')
         return
@@ -803,7 +889,7 @@ function App() {
 
   const openCourse = (course: CourseCard) => {
     setSelectedCourseId(course.id)
-    if (course.status === 'ready') {
+    if (course.workspace === 'python' || course.id === 'python') {
       setCourseMode('python')
       setActiveNav('graph')
       setShowGraphDetail(true)
@@ -834,19 +920,32 @@ function App() {
     setLoginStatus(loginMode === 'register' ? '正在注册账号...' : '正在登录...')
     try {
       const response = loginMode === 'register'
-        ? await authApi.register(username, loginPassword)
+        ? await authApi.register(username, loginPassword, loginRole)
         : await authApi.login(username, loginPassword)
-      const { access_token, username: returnedUsername } = response.data
+      const { access_token, username: returnedUsername, role } = response.data
+      if (loginMode === 'login' && role !== loginRole) {
+        throw new Error(`账号角色与当前入口不匹配，请切换到${role === 'student' ? '学生' : role === 'teacher' ? '教师' : '管理员'}入口登录。`)
+      }
       window.localStorage.setItem('eduhive.auth_token', access_token)
       window.localStorage.setItem('eduhive.username', returnedUsername || username)
+      window.localStorage.setItem('eduhive.role', role || 'student')
       setAuthUser(returnedUsername || username)
+      setAuthRole(role || 'student')
       setLoginUsername(returnedUsername || username)
       setLoginPassword('')
       setLoginStatus(loginMode === 'register' ? '注册成功，已自动登录。' : '登录成功。')
-      if (continueCourse) openCourse(continueCourse)
+      if (role === 'teacher') {
+        setCourseMode('teacher')
+        window.location.hash = '/teacher'
+      } else if (role === 'admin') {
+        setCourseMode('admin')
+        window.location.hash = '/admin'
+      } else if (continueCourse) {
+        openCourse(continueCourse)
+      }
     } catch (error: any) {
       const detail = error?.response?.data?.detail
-      setLoginStatus(typeof detail === 'string' ? detail : '登录接口暂不可用，请先启动后端服务或检查账号密码。')
+      setLoginStatus(typeof detail === 'string' ? detail : error?.message || '登录暂时失败，请检查账号密码后重试。')
     } finally {
       setAuthLoading(false)
     }
@@ -861,9 +960,13 @@ function App() {
     } finally {
       window.localStorage.removeItem('eduhive.auth_token')
       window.localStorage.removeItem('eduhive.username')
+      window.localStorage.removeItem('eduhive.role')
       setAuthUser('')
+      setAuthRole('student')
       setLoginPassword('')
       setLoginStatus('已退出登录。')
+      setCourseMode('portal')
+      window.location.hash = '/portal'
       setAuthLoading(false)
     }
   }
@@ -1558,26 +1661,42 @@ function App() {
     }
   }
 
-  const selectedCourse = COURSE_CATALOG.find((course) => course.id === selectedCourseId) ?? COURSE_CATALOG[0]
+  const portalCourses = useMemo(() => [
+    COURSE_CATALOG[0],
+    ...publishedCourseCards,
+    ...COURSE_CATALOG.slice(1),
+  ], [publishedCourseCards])
+  const selectedCourse = portalCourses.find((course) => course.id === selectedCourseId) ?? portalCourses[0]
 
   if (courseMode === 'portal') {
     return (
       <CoursePortal
-        courses={COURSE_CATALOG}
+        courses={portalCourses}
         onOpenCourse={openCourse}
         authUser={authUser}
+        authRole={authRole}
+        loginRole={loginRole}
         loginUsername={loginUsername}
         loginPassword={loginPassword}
         loginMode={loginMode}
         loginStatus={loginStatus}
         authLoading={authLoading}
         onUsernameChange={setLoginUsername}
+        onLoginRoleChange={setLoginRole}
         onPasswordChange={setLoginPassword}
         onLoginModeChange={setLoginMode}
         onSubmitAuth={submitPortalAuth}
         onLogout={logoutPortal}
       />
     )
+  }
+
+  if (courseMode === 'teacher') {
+    return <TeacherWorkspace onBack={openPortal} onLogout={logoutPortal} />
+  }
+
+  if (courseMode === 'admin') {
+    return <AdminWorkspace onBack={openPortal} onLogout={logoutPortal} />
   }
 
   if (courseMode === 'empty') {
@@ -1833,12 +1952,15 @@ type CoursePortalProps = {
   courses: CourseCard[]
   onOpenCourse: (course: CourseCard) => void
   authUser: string
+  authRole: UserRole
+  loginRole: UserRole
   loginUsername: string
   loginPassword: string
   loginMode: 'login' | 'register'
   loginStatus: string
   authLoading: boolean
   onUsernameChange: (value: string) => void
+  onLoginRoleChange: (value: UserRole) => void
   onPasswordChange: (value: string) => void
   onLoginModeChange: (value: 'login' | 'register') => void
   onSubmitAuth: (continueCourse?: CourseCard) => void
@@ -1849,18 +1971,68 @@ function CoursePortal({
   courses,
   onOpenCourse,
   authUser,
+  authRole,
+  loginRole,
   loginUsername,
   loginPassword,
   loginMode,
   loginStatus,
   authLoading,
   onUsernameChange,
+  onLoginRoleChange,
   onPasswordChange,
   onLoginModeChange,
   onSubmitAuth,
   onLogout,
 }: CoursePortalProps) {
   const featured = courses[0]
+  const activePortalRole = authUser ? authRole : loginRole
+  const roleLabel = activePortalRole === 'teacher' ? '教师' : activePortalRole === 'admin' ? '管理员' : '学生'
+  const roleHomeLabel = activePortalRole === 'teacher' ? '进入教师工作台' : activePortalRole === 'admin' ? '进入管理后台' : '继续学习'
+  const accountPanelTitle = authUser
+    ? (activePortalRole === 'student' ? '学习账户' : `${roleLabel}账户`)
+    : (loginMode === 'register' ? `创建${roleLabel}账户` : `${roleLabel}登录`)
+  const portalCopy = {
+    student: {
+      kicker: 'AI 驱动的个性化课程空间',
+      title: ['选择课程', '进入你的智学蜂巢'],
+      summary: '从目标出发，系统会结合你的学习记录与掌握情况，推荐更适合当前阶段的课程内容。',
+      primary: '进入推荐课程',
+      secondary: authUser ? '查看学习账户' : '登录后同步学习记录',
+      steps: [
+        ['选课', '从课程广场进入', BookOpen],
+        ['规划', '生成学习路径', Route],
+        ['学习', '对话与资源协同', MessageSquare],
+        ['评估', '追踪掌握进度', BarChart3],
+      ],
+    },
+    teacher: {
+      kicker: '教师课程建设空间',
+      title: ['管理课程', '组织你的教学内容'],
+      summary: '教师端聚焦课程创建、资料上传和课程状态维护。登录后进入教师工作台处理自己的课程。',
+      primary: authUser ? '进入教师工作台' : '教师登录',
+      secondary: '查看课程目录',
+      steps: [
+        ['建课', '创建课程信息', BookOpen],
+        ['整理', '维护课程状态', Layers3],
+        ['发布', '开放学习入口', ShieldCheck],
+        ['复盘', '查看真实记录', BarChart3],
+      ],
+    },
+    admin: {
+      kicker: '平台管理中心',
+      title: ['管理平台', '维护课程与账号'],
+      summary: '管理端聚焦用户、课程和平台运行概览。登录管理员账号后进入后台处理基础数据。',
+      primary: authUser ? '进入管理后台' : '管理员登录',
+      secondary: '查看课程目录',
+      steps: [
+        ['账号', '查看用户角色', UserRound],
+        ['课程', '管理课程状态', Layers3],
+        ['统计', '读取真实数据', BarChart3],
+        ['权限', '控制后台访问', ShieldCheck],
+      ],
+    },
+  }[activePortalRole]
   const categories = ['全部课程', ...Array.from(new Set(courses.map((course) => course.category)))]
   const [activeCategory, setActiveCategory] = useState('全部课程')
   const [courseQuery, setCourseQuery] = useState('')
@@ -1893,6 +2065,18 @@ function CoursePortal({
     coursesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
+  const openRoleHome = () => {
+    if (activePortalRole === 'teacher') {
+      window.location.hash = '/teacher'
+      return
+    }
+    if (activePortalRole === 'admin') {
+      window.location.hash = '/admin'
+      return
+    }
+    onOpenCourse(featured)
+  }
+
   return (
     <div className="course-portal min-h-screen">
       <header className="portal-nav">
@@ -1918,7 +2102,7 @@ function CoursePortal({
             <Mail className="h-4 w-4" /> {authUser || '未登录'}
           </button>
           <button type="button" onClick={authUser ? onLogout : focusLoginCard} disabled={authLoading}>
-            <LockKeyhole className="h-4 w-4" /> {authUser ? '退出' : '登录'}
+            <LockKeyhole className="h-4 w-4" /> {authUser ? '退出登录' : '登录'}
           </button>
         </div>
       </header>
@@ -1926,13 +2110,13 @@ function CoursePortal({
       <main className="portal-main">
         <section className="portal-hero">
           <div className="portal-hero-copy">
-            <p className="portal-kicker">AI 驱动的个性化课程空间</p>
-            <h1><span>选择课程</span><span>进入你的智学蜂巢</span></h1>
-            <span>从目标出发，系统会结合你的学习记录与掌握情况，推荐更适合当前阶段的课程内容。</span>
+            <p className="portal-kicker">{portalCopy.kicker}</p>
+            <h1><span>{portalCopy.title[0]}</span><span>{portalCopy.title[1]}</span></h1>
+            <span>{portalCopy.summary}</span>
             <div className="portal-hero-chips" aria-label="平台能力">
-              <span><Sparkles className="h-3.5 w-3.5" /> 智能推荐</span>
-              <span><Network className="h-3.5 w-3.5" /> 知识图谱</span>
-              <span><Brain className="h-3.5 w-3.5" /> 掌握度分析</span>
+              <span><Sparkles className="h-3.5 w-3.5" /> 智能辅助</span>
+              <span><Network className="h-3.5 w-3.5" /> 多端协同</span>
+              <span><Brain className="h-3.5 w-3.5" /> 真实数据</span>
             </div>
             <div className="portal-search">
               <Search className="h-5 w-5" />
@@ -1948,58 +2132,47 @@ function CoursePortal({
               <button type="button" onClick={showCourseResults}>搜索课程</button>
             </div>
             <div className="portal-hero-actions">
-              <button type="button" className="portal-primary-action" onClick={() => onOpenCourse(featured)}>
-                进入推荐课程 <ChevronRight className="h-4 w-4" />
+              <button type="button" className="portal-primary-action" onClick={authUser ? openRoleHome : focusLoginCard}>
+                {portalCopy.primary} <ChevronRight className="h-4 w-4" />
               </button>
-              <button type="button" className="portal-ghost-action" onClick={focusLoginCard}>
-                {authUser ? '查看学习账户' : '登录后同步学习记录'}
+              <button type="button" className="portal-ghost-action" onClick={activePortalRole === 'student' ? focusLoginCard : showCourseResults}>
+                {portalCopy.secondary}
               </button>
             </div>
             <div className="portal-learning-flow" aria-label="学习流程">
-              <div>
-                <span><BookOpen className="h-4 w-4" /></span>
-                <strong>选课</strong>
-                <em>从课程广场进入</em>
-              </div>
-              <i />
-              <div>
-                <span><Route className="h-4 w-4" /></span>
-                <strong>规划</strong>
-                <em>生成学习路径</em>
-              </div>
-              <i />
-              <div>
-                <span><MessageSquare className="h-4 w-4" /></span>
-                <strong>学习</strong>
-                <em>对话与资源协同</em>
-              </div>
-              <i />
-              <div>
-                <span><BarChart3 className="h-4 w-4" /></span>
-                <strong>评估</strong>
-                <em>追踪掌握进度</em>
-              </div>
+              {portalCopy.steps.map(([title, desc, Icon], index) => (
+                <Fragment key={title as string}>
+                  {index > 0 && <i />}
+                  <div>
+                    <span><Icon className="h-4 w-4" /></span>
+                    <strong>{title as string}</strong>
+                    <em>{desc as string}</em>
+                  </div>
+                </Fragment>
+              ))}
             </div>
           </div>
           <div className="portal-hero-side">
             <PortalDigitalHuman
               authUser={authUser}
+              activeRole={activePortalRole}
               onFocusLogin={focusLoginCard}
               onShowCourses={showCourseResults}
-              onOpenFeatured={() => onOpenCourse(featured)}
+              onOpenRoleHome={openRoleHome}
             />
             <form ref={loginCardRef} className={cn('portal-login-card', loginCardPulse && 'is-attention')} onSubmit={(event) => {
               event.preventDefault()
               onSubmitAuth()
             }}>
-              <strong>{authUser ? '学习账户' : loginMode === 'register' ? '创建学习账户' : '登录学习账户'}</strong>
+              <strong>{accountPanelTitle}</strong>
               {authUser ? (
                 <>
                   <div className="portal-account-panel">
                     <span>当前账号</span>
                     <b>{authUser}</b>
+                    <small>身份：{roleLabel}</small>
                   </div>
-                  <button type="button" onClick={() => onOpenCourse(featured)}>继续学习</button>
+                  <button type="button" onClick={openRoleHome}>{roleHomeLabel}</button>
                   <button type="button" className="portal-secondary-button" onClick={onLogout} disabled={authLoading}>退出登录</button>
                 </>
               ) : (
@@ -2007,6 +2180,22 @@ function CoursePortal({
                   <div className="portal-login-tabs" role="group" aria-label="登录模式">
                     <button type="button" className={loginMode === 'login' ? 'active' : ''} onClick={() => onLoginModeChange('login')}>登录</button>
                     <button type="button" className={loginMode === 'register' ? 'active' : ''} onClick={() => onLoginModeChange('register')}>注册</button>
+                  </div>
+                  <div className="portal-login-tabs role-login-tabs" role="group" aria-label="用户身份">
+                    {[
+                      ['student', '学生'],
+                      ['teacher', '教师'],
+                      ['admin', '管理员'],
+                    ].map(([role, label]) => (
+                      <button
+                        key={role}
+                        type="button"
+                        className={loginRole === role ? 'active' : ''}
+                        onClick={() => onLoginRoleChange(role as UserRole)}
+                      >
+                        {label}
+                      </button>
+                    ))}
                   </div>
                   <label>
                     <span>账号</span>
@@ -2039,7 +2228,7 @@ function CoursePortal({
               <button key={course.id} type="button" onClick={() => onOpenCourse(course)} className={cn('course-card', `course-card-${course.accent}`)}>
                 <div className="course-card-cover">
                   <BookOpen className="h-7 w-7" />
-                  <span>{course.status === 'ready' ? '已开放' : '建设中'}</span>
+                  <span>{course.workspace === 'materials' ? '可查看资料' : course.status === 'ready' ? '已开放' : '建设中'}</span>
                 </div>
                 <div className="course-card-body">
                   <p>{course.category} · {course.level}</p>
@@ -2053,7 +2242,7 @@ function CoursePortal({
                     {course.tags.map((tag) => <i key={tag}>{tag}</i>)}
                   </div>
                 </div>
-                <strong>{course.status === 'ready' ? '进入课程' : '查看状态'}<ChevronRight className="h-4 w-4" /></strong>
+                <strong>{course.workspace === 'materials' ? '查看资料' : course.status === 'ready' ? '进入课程' : '查看状态'}<ChevronRight className="h-4 w-4" /></strong>
               </button>
             ))}
             {!filteredCourses.length && (
@@ -2072,14 +2261,16 @@ function CoursePortal({
 
 function PortalDigitalHuman({
   authUser,
+  activeRole,
   onFocusLogin,
   onShowCourses,
-  onOpenFeatured,
+  onOpenRoleHome,
 }: {
   authUser: string
+  activeRole: UserRole
   onFocusLogin: () => void
   onShowCourses: () => void
-  onOpenFeatured: () => void
+  onOpenRoleHome: () => void
 }) {
   const { speaking, source, speak, stop } = useSparkTTS()
   const [imageReady, setImageReady] = useState(true)
@@ -2089,9 +2280,47 @@ function PortalDigitalHuman({
       ? '/assets/eduhive-portal-assistant-cutout.png'
       : '/assets/eduhive-portal-assistant-female-cutout.png'
   const assistantVoice = assistantGender === 'male' ? 'aisjiuxu' : 'aisjinger'
-  const guideText = authUser
-    ? `欢迎回来，${authUser}。我可以帮你继续学习推荐课程，也可以带你查看课程列表，选择下一门适合当前阶段的课程。`
-    : '欢迎来到智学蜂巢课程广场。我可以帮你筛选课程、说明学习路径，并在登录后同步你的学习记录与课程进度。'
+  const assistantRoleCopy: Record<UserRole, {
+    title: string
+    body: string
+    guide: string
+    coursesLabel: string
+    accountLabel: string
+    homeLabel: string
+  }> = {
+    student: {
+      title: authUser ? '我可以帮你继续学习' : `你好，我是${assistantGender === 'male' ? '小蜂导学助教' : '小蜂导学学姐'}`,
+      body: authUser ? '我可以带你回到已开放课程，也可以帮你重新筛选适合当前阶段的课程。' : '先选择课程，再进入对应学习工作台；登录后可以保留进度和学习记录。',
+      guide: authUser
+        ? `欢迎回来，${authUser}。我可以帮你继续学习已开放课程，也可以带你查看课程列表。`
+        : '欢迎来到智学蜂巢课程广场。我可以帮你筛选课程、说明学习路径，并在登录后同步你的学习记录与课程进度。',
+      coursesLabel: '找课程',
+      accountLabel: authUser ? '账户' : '登录',
+      homeLabel: '继续学习',
+    },
+    teacher: {
+      title: authUser ? '我可以协助你管理课程' : '这里是教师登录入口',
+      body: authUser ? '进入教师工作台后，可以创建课程、上传课程资料，并维护课程发布状态。' : '请选择教师身份登录，登录后进入课程建设与课程管理工作台。',
+      guide: authUser
+        ? `欢迎回来，${authUser}。当前是教师端，我可以带你进入教师工作台，处理课程创建、资料上传和课程状态管理。`
+        : '当前是教师入口。教师登录后可以进入课程工作台，创建课程并维护课程资料。',
+      coursesLabel: '课程目录',
+      accountLabel: authUser ? '教师账号' : '教师登录',
+      homeLabel: authUser ? '教师工作台' : '教师登录',
+    },
+    admin: {
+      title: authUser ? '我可以协助你管理平台' : '这里是管理员登录入口',
+      body: authUser ? '进入管理后台后，可以查看用户、课程和平台统计，并维护课程状态。' : '请选择管理员身份登录，登录后进入平台数据与权限管理后台。',
+      guide: authUser
+        ? `欢迎回来，${authUser}。当前是管理端，我可以带你进入管理后台，查看用户、课程和平台统计。`
+        : '当前是管理员入口。管理员登录后可以进入后台，查看平台真实数据并管理课程状态。',
+      coursesLabel: '课程目录',
+      accountLabel: authUser ? '管理员账号' : '管理员登录',
+      homeLabel: authUser ? '管理后台' : '管理员登录',
+    },
+  }
+  const activeAssistantCopy = assistantRoleCopy[activeRole]
+  const guideText = activeAssistantCopy.guide
 
   const toggleGuideVoice = () => {
     if (speaking) {
@@ -2138,15 +2367,15 @@ function PortalDigitalHuman({
           <span><Sparkles className="h-3.5 w-3.5" /> 数字人导学</span>
           <em>{source === 'iflytek' ? '讯飞语音在线' : source === 'browser' ? '浏览器语音' : '语音检测中'}</em>
         </div>
-        <strong>{authUser ? '我已准备好帮你继续学习' : `你好，我是${assistantGender === 'male' ? '小蜂导学助教' : '小蜂导学学姐'}`}</strong>
-        <p>{authUser ? '根据你的账户状态，我可以直接带你回到推荐课程，也可以重新筛选课程。' : '先选择课程，再进入对应学习工作台；登录后可以保留进度和学习记录。'}</p>
+        <strong>{activeAssistantCopy.title}</strong>
+        <p>{activeAssistantCopy.body}</p>
         <div className="portal-digital-human-actions">
           <button type="button" onClick={toggleGuideVoice} className={cn(speaking && 'active')}>
             <Volume2 className="h-3.5 w-3.5" /> {speaking ? '停止导学' : '听导学'}
           </button>
-          <button type="button" onClick={onShowCourses}>找课程</button>
-          <button type="button" onClick={onFocusLogin}>{authUser ? '账户' : '登录'}</button>
-          <button type="button" onClick={onOpenFeatured}>继续学习</button>
+          <button type="button" onClick={onShowCourses}>{activeAssistantCopy.coursesLabel}</button>
+          <button type="button" onClick={onFocusLogin}>{activeAssistantCopy.accountLabel}</button>
+          <button type="button" onClick={authUser ? onOpenRoleHome : onFocusLogin}>{activeAssistantCopy.homeLabel}</button>
         </div>
         <div className="portal-voice-toggle" role="group" aria-label="数字人形象">
           <span>形象</span>
@@ -2159,6 +2388,32 @@ function PortalDigitalHuman({
 }
 
 function EmptyCoursePage({ course, onBack }: { course: CourseCard; onBack: () => void }) {
+  const [materials, setMaterials] = useState<CourseMaterial[]>([])
+  const [loadingMaterials, setLoadingMaterials] = useState(false)
+  const isMaterialCourse = course.workspace === 'materials' && Boolean(course.backendCourseId)
+
+  useEffect(() => {
+    if (!isMaterialCourse || !course.backendCourseId) {
+      setMaterials([])
+      return
+    }
+    let cancelled = false
+    setLoadingMaterials(true)
+    teacherApi.getPublicCourseMaterials(course.backendCourseId)
+      .then((res) => {
+        if (!cancelled) setMaterials(res.data.materials)
+      })
+      .catch(() => {
+        if (!cancelled) setMaterials([])
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingMaterials(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [course.backendCourseId, isMaterialCourse])
+
   return (
     <div className="empty-course-page min-h-screen">
       <header className="portal-nav">
@@ -2169,13 +2424,48 @@ function EmptyCoursePage({ course, onBack }: { course: CourseCard; onBack: () =>
         <div className={cn('empty-course-card', `course-card-${course.accent}`)}>
           <div className="course-card-cover">
             <BookOpen className="h-8 w-8" />
-            <span>建设中</span>
+            <span>{isMaterialCourse ? '已发布' : '建设中'}</span>
           </div>
           <p>{course.category} · {course.level}</p>
           <h1>{course.title}</h1>
           <span>{course.summary}</span>
-          <strong>暂无课程内容哦~</strong>
-          <button type="button" onClick={onBack}>去选择已开放课程</button>
+          {isMaterialCourse ? (
+            <section className="student-material-panel">
+              <div className="student-material-title">
+                <div>
+                  <p>课程资料</p>
+                  <strong>{materials.length ? `${materials.length} 个文件` : '等待资料'}</strong>
+                </div>
+                <span>{loadingMaterials ? '正在载入...' : '由教师维护，可下载后学习'}</span>
+              </div>
+              {materials.length ? (
+                <div className="student-material-list">
+                  {materials.map((material) => (
+                    <article key={material.material_id}>
+                      <FileUp className="h-4 w-4" />
+                      <div>
+                        <strong>{material.original_filename}</strong>
+                        <span>{formatFileSize(material.file_size)} · {material.created_at.slice(0, 10)}</span>
+                      </div>
+                      <a href={teacherApi.downloadCourseMaterialUrl(material.material_id, true)} target="_blank" rel="noreferrer">
+                        <Download className="h-3.5 w-3.5" /> 下载
+                      </a>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <div className="student-material-empty">
+                  {loadingMaterials ? '正在整理课程资料...' : '教师暂未添加资料。'}
+                </div>
+              )}
+              <button type="button" onClick={onBack}>返回课程广场</button>
+            </section>
+          ) : (
+            <>
+              <strong>暂无课程内容哦~</strong>
+              <button type="button" onClick={onBack}>去选择已开放课程</button>
+            </>
+          )}
         </div>
       </main>
     </div>
@@ -2853,4 +3143,580 @@ function LegendDot({ color, label }: { color: 'mint' | 'amber' | 'gray'; label: 
   )
 }
 
+function TeacherWorkspace({ onBack, onLogout }: { onBack: () => void; onLogout: () => void }) {
+  const [courses, setCourses] = useState<CourseRecord[]>([])
+  const [materialsByCourse, setMaterialsByCourse] = useState<Record<string, CourseMaterial[]>>({})
+  const [loading, setLoading] = useState(false)
+  const [uploadingCourseId, setUploadingCourseId] = useState('')
+  const [status, setStatus] = useState('这里会显示你当前账号下已保存的课程。')
+  const [form, setForm] = useState({ title: '', category: '程序设计', summary: '' })
+  const coursesRef = useRef<CourseRecord[]>([])
+  const courseCount = courses.length
+  const publishedCount = courses.filter((course) => course.status === 'published').length
+  const pendingReviewCount = courses.filter((course) => course.status === 'pending_review').length
+  const draftCount = courses.filter((course) => course.status === 'draft').length
+
+  const loadMaterialsForCourses = useCallback(async (courseList: CourseRecord[]) => {
+    const entries = await Promise.all(courseList.map(async (course) => {
+      try {
+        const res = await teacherApi.getCourseMaterials(course.course_id)
+        return [course.course_id, res.data.materials] as const
+      } catch {
+        return [course.course_id, []] as const
+      }
+    }))
+    setMaterialsByCourse(Object.fromEntries(entries))
+  }, [])
+
+  const refreshCourseMaterials = useCallback(async (courseId: string) => {
+    try {
+      const res = await teacherApi.getCourseMaterials(courseId)
+      setMaterialsByCourse((current) => ({ ...current, [courseId]: res.data.materials }))
+      return res.data.materials
+    } catch {
+      setStatus('课程资料暂时无法刷新，请稍后重试。')
+      return []
+    }
+  }, [])
+
+  const loadCourses = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await teacherApi.getCourses()
+      setCourses(res.data.courses)
+      await loadMaterialsForCourses(res.data.courses)
+      setStatus(res.data.courses.length ? '已载入你的课程。' : '当前账号还没有课程，先添加一门吧。')
+    } catch (error: any) {
+      setStatus(error?.response?.data?.detail || '课程暂时加载失败，请稍后重试。')
+    } finally {
+      setLoading(false)
+    }
+  }, [loadMaterialsForCourses])
+
+  useEffect(() => {
+    loadCourses()
+  }, [loadCourses])
+
+  useEffect(() => {
+    coursesRef.current = courses
+  }, [courses])
+
+  const syncCourseStatuses = useCallback(async () => {
+    try {
+      const res = await teacherApi.getCourses()
+      const currentStatusById = new Map(coursesRef.current.map((course) => [course.course_id, course.status]))
+      const hasStatusChange = res.data.courses.some((course) => {
+        const previousStatus = currentStatusById.get(course.course_id)
+        return previousStatus && previousStatus !== course.status
+      })
+      setCourses(res.data.courses)
+      if (hasStatusChange) setStatus('课程审核状态已同步。')
+    } catch {
+      // 后台轻量同步失败时不打断教师正在进行的操作。
+    }
+  }, [])
+
+  useEffect(() => {
+    const handleVisibleSync = () => {
+      if (document.visibilityState === 'visible') void syncCourseStatuses()
+    }
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void syncCourseStatuses()
+    }, 12000)
+
+    window.addEventListener('focus', handleVisibleSync)
+    document.addEventListener('visibilitychange', handleVisibleSync)
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener('focus', handleVisibleSync)
+      document.removeEventListener('visibilitychange', handleVisibleSync)
+    }
+  }, [syncCourseStatuses])
+
+  const submitCourse = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!form.title.trim() || !form.summary.trim()) {
+      setStatus('请填写课程名称和课程简介。')
+      return
+    }
+    setLoading(true)
+    try {
+      const res = await teacherApi.createCourse({
+        title: form.title.trim(),
+        category: form.category.trim() || '未分类',
+        summary: form.summary.trim(),
+        status: 'draft',
+      })
+      setCourses((current) => [res.data.course, ...current])
+      setMaterialsByCourse((current) => ({ ...current, [res.data.course.course_id]: [] }))
+      setForm({ title: '', category: '程序设计', summary: '' })
+      setStatus(`课程「${res.data.course.title}」已保存。`)
+    } catch (error: any) {
+      setStatus(error?.response?.data?.detail || '新增课程失败。')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const updateStatus = async (course: CourseRecord, nextStatus: string) => {
+    setLoading(true)
+    try {
+      const res = await teacherApi.updateCourse(course.course_id, { status: nextStatus })
+      setCourses((current) => current.map((item) => item.course_id === course.course_id ? res.data.course : item))
+      setStatus(`课程「${course.title}」已${nextStatus === 'pending_review' ? '提交审核' : nextStatus === 'draft' ? '设为草稿' : getCourseStatusLabel(nextStatus)}。`)
+    } catch (error: any) {
+      setStatus(error?.response?.data?.detail || '课程状态更新失败。')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const removeCourse = async (course: CourseRecord) => {
+    const materialCount = (materialsByCourse[course.course_id] || []).length
+    const confirmed = window.confirm(
+      materialCount
+        ? `确定删除课程「${course.title}」吗？该课程下的 ${materialCount} 个资料也会一起删除。`
+        : `确定删除课程「${course.title}」吗？`,
+    )
+    if (!confirmed) return
+    setLoading(true)
+    try {
+      const res = await teacherApi.deleteCourse(course.course_id)
+      setCourses(res.data.courses)
+      setMaterialsByCourse((current) => {
+        const next = { ...current }
+        delete next[course.course_id]
+        return next
+      })
+      setStatus(`课程「${course.title}」已删除。`)
+    } catch (error: any) {
+      setStatus(error?.response?.data?.detail || '课程删除失败。')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const uploadMaterial = async (course: CourseRecord, file?: File) => {
+    if (!file) return
+    setUploadingCourseId(course.course_id)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await teacherApi.uploadCourseMaterial(course.course_id, formData)
+      setMaterialsByCourse((current) => ({ ...current, [course.course_id]: res.data.materials }))
+      if (res.data.course) {
+        setCourses((current) => current.map((item) => item.course_id === course.course_id ? res.data.course! : item))
+      }
+      setStatus(`资料「${file.name}」已添加到「${course.title}」。`)
+    } catch (error: any) {
+      setStatus(error?.response?.data?.detail || '资料上传失败，请检查文件后重试。')
+    } finally {
+      setUploadingCourseId('')
+    }
+  }
+
+  const removeMaterial = async (course: CourseRecord, material: CourseMaterial) => {
+    setUploadingCourseId(course.course_id)
+    try {
+      const res = await teacherApi.deleteCourseMaterial(material.material_id)
+      setMaterialsByCourse((current) => ({ ...current, [course.course_id]: res.data.materials }))
+      if (res.data.course) {
+        setCourses((current) => current.map((item) => item.course_id === course.course_id ? res.data.course! : item))
+      }
+      setStatus(`资料「${material.original_filename}」已移除。`)
+    } catch (error: any) {
+      setStatus(error?.response?.data?.detail || '资料删除失败。')
+    } finally {
+      setUploadingCourseId('')
+    }
+  }
+
+  const downloadMaterial = async (material: CourseMaterial) => {
+    try {
+      const res = await teacherApi.downloadCourseMaterial(material.material_id)
+      const blob = new Blob([res.data], { type: material.mime_type || 'application/octet-stream' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = material.original_filename
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+    } catch {
+      setStatus('资料下载失败，请稍后重试。')
+    }
+  }
+
+  return (
+    <div className="teacher-page">
+      <header className="portal-nav teacher-nav">
+        <BrandBlock />
+        <nav aria-label="教师端导航">
+          <button type="button" onClick={onBack}><Home className="h-4 w-4" />课程广场</button>
+          <button type="button" onClick={onLogout}><LockKeyhole className="h-4 w-4" />退出登录</button>
+        </nav>
+      </header>
+      <main className="portal-main teacher-main">
+        <section className="portal-hero teacher-hero">
+          <div className="portal-hero-copy">
+            <p className="portal-kicker">教师课程工作台</p>
+            <h1><span>创建课程并管理课堂内容</span></h1>
+            <span>在这里你可以新建课程、上传资料并提交审核，课程会在管理端通过后再对学生开放。</span>
+            <div className="portal-hero-chips" aria-label="教师端能力">
+              <span><BookOpen className="h-3.5 w-3.5" />课程创建</span>
+              <span><Layers3 className="h-3.5 w-3.5" />课程管理</span>
+              <span><FileUp className="h-3.5 w-3.5" />资料上传</span>
+            </div>
+          </div>
+          <div className="portal-hero-side">
+            <form className="portal-login-card teacher-form-card" onSubmit={submitCourse}>
+              <strong>添加课程</strong>
+              <span className="teacher-form-note">填写完成后点保存，课程会出现在下方列表里。</span>
+              <label>
+                <span>课程名称</span>
+                <input value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="例如：Python 程序设计基础" />
+              </label>
+              <label>
+                <span>课程分类</span>
+                <input value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} placeholder="例如：程序设计" />
+              </label>
+              <label>
+                <span>课程简介</span>
+                <textarea value={form.summary} onChange={(event) => setForm({ ...form, summary: event.target.value })} placeholder="说明课程面向对象和学习目标" />
+              </label>
+              <button type="submit" disabled={loading}>{loading ? '提交中...' : '保存课程'}</button>
+            </form>
+
+            <section className="portal-login-card teacher-summary-card">
+              <strong>课程概览</strong>
+              <div className="teacher-summary-grid">
+                <div>
+                  <span>总课程数</span>
+                  <b>{courseCount}</b>
+                </div>
+                <div>
+                  <span>草稿</span>
+                  <b>{draftCount}</b>
+                </div>
+                <div>
+                  <span>待审核</span>
+                  <b>{pendingReviewCount}</b>
+                </div>
+                <div>
+                  <span>已发布</span>
+                  <b>{publishedCount}</b>
+                </div>
+              </div>
+              <p>{loading ? '正在刷新课程...' : status}</p>
+            </section>
+          </div>
+        </section>
+
+        <section className="portal-section teacher-courses-section">
+          <div className="portal-section-title">
+            <div>
+              <p>我的课程</p>
+              <h2>{courseCount ? `共 ${courseCount} 门课程` : '暂无课程'}</h2>
+            </div>
+            <span>下方展示的是你当前账号下的课程，修改后会同步到课程列表。</span>
+          </div>
+          {courses.length ? (
+            <div className="course-card-grid teacher-course-grid">
+              {courses.map((course) => (
+                <article key={course.course_id} className="course-card course-card-teal teacher-course-card">
+                  <div className="course-card-cover">
+                    <BookOpen className="h-7 w-7" />
+                    <span>{getCourseStatusLabel(course.status)}</span>
+                  </div>
+                  <div className="course-card-body">
+                    <p>{course.category} · {course.teacher_username}</p>
+                    <h3>{course.title}</h3>
+                    <span>{course.summary}</span>
+                    <div className="course-card-meta">
+                      <em><Clock3 className="h-3.5 w-3.5" />更新 {course.updated_at.slice(0, 10)}</em>
+                      <em><UserRound className="h-3.5 w-3.5" />创建者 {course.teacher_username}</em>
+                    </div>
+                    <div className="course-card-tags">
+                      <i>{course.course_id.slice(0, 8)}</i>
+                      <i>{getCourseStatusLabel(course.status)}</i>
+                    </div>
+                    <div className="teacher-material-panel">
+                      <div className="teacher-material-head">
+                        <span>课程资料</span>
+                        <label className={cn('teacher-upload-chip', uploadingCourseId === course.course_id && 'is-busy')}>
+                          <FileUp className="h-3.5 w-3.5" />
+                          {uploadingCourseId === course.course_id ? '处理中...' : '上传资料'}
+                          <input
+                            type="file"
+                            accept=".pdf,.doc,.docx,.ppt,.pptx,.md,.txt,.py,.zip,.png,.jpg,.jpeg"
+                            disabled={uploadingCourseId === course.course_id}
+                            onChange={(event) => {
+                              const file = event.currentTarget.files?.[0]
+                              if (file) void uploadMaterial(course, file)
+                              event.currentTarget.value = ''
+                            }}
+                          />
+                        </label>
+                      </div>
+                      {(materialsByCourse[course.course_id] || []).length ? (
+                        <div className="teacher-material-list">
+                          {(materialsByCourse[course.course_id] || []).map((material) => (
+                            <article key={material.material_id}>
+                              <FileUp className="h-3.5 w-3.5" />
+                              <div>
+                                <strong>{material.original_filename}</strong>
+                                <span>{formatFileSize(material.file_size)} · {material.created_at.slice(0, 10)}</span>
+                              </div>
+                              <button type="button" onClick={() => void downloadMaterial(material)} title="下载资料">
+                                <Download className="h-3.5 w-3.5" />
+                              </button>
+                              <button type="button" onClick={() => void removeMaterial(course, material)} title="删除资料">
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </article>
+                          ))}
+                        </div>
+                      ) : (
+                        <button type="button" className="teacher-material-empty" onClick={() => void refreshCourseMaterials(course.course_id)}>
+                          暂无资料，上传课件或讲义后学生可查看
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <strong className="teacher-course-actions">
+                    <span className="teacher-status-label">课程状态</span>
+                    <span className="teacher-status-toggle" role="group" aria-label="课程状态">
+                      <button
+                        type="button"
+                        className={course.status === 'draft' ? 'active' : ''}
+                        aria-pressed={course.status === 'draft'}
+                        onClick={() => updateStatus(course, 'draft')}
+                      >
+                        草稿
+                      </button>
+                      <button
+                        type="button"
+                        className={course.status === 'pending_review' ? 'active' : ''}
+                        aria-pressed={course.status === 'pending_review'}
+                        onClick={() => updateStatus(course, 'pending_review')}
+                      >
+                        提交审核
+                      </button>
+                    </span>
+                    <button type="button" className="danger" onClick={() => void removeCourse(course)}>删除</button>
+                  </strong>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="course-empty-result teacher-empty-result">
+              <Layers3 className="h-6 w-6" />
+              <strong>还没有课程</strong>
+              <span>先在右侧添加一门课程，保存后就会显示在这里。</span>
+            </div>
+          )}
+        </section>
+      </main>
+      <FloatingAssistant activeNav="resources" selectedConcept="教师工作台" roleContext="teacher" />
+    </div>
+  )
+}
+
+function AdminWorkspace({ onBack, onLogout }: { onBack: () => void; onLogout: () => void }) {
+  const [stats, setStats] = useState<Record<string, number>>({})
+  const [users, setUsers] = useState<Array<{ username: string; role: UserRole; created_at: string }>>([])
+  const [courses, setCourses] = useState<AdminCourseRecord[]>([])
+  const [loading, setLoading] = useState(false)
+  const [status, setStatus] = useState('正在加载管理概览。')
+
+  const loadAdminData = useCallback(async () => {
+    setLoading(true)
+    try {
+      const [statsRes, usersRes, coursesRes] = await Promise.all([
+        adminApi.getStats(),
+        adminApi.getUsers(),
+        adminApi.getCourses(),
+      ])
+      setStats(statsRes.data.stats)
+      setUsers(usersRes.data.users)
+      setCourses(coursesRes.data.courses)
+      setStatus('管理概览已更新。')
+    } catch (error: any) {
+      setStatus(error?.response?.data?.detail || '管理概览暂时不可用，请确认当前账号是管理员。')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadAdminData()
+  }, [loadAdminData])
+
+  const setCourseStatus = async (course: AdminCourseRecord, nextStatus: string) => {
+    setLoading(true)
+    try {
+      const res = await adminApi.updateCourse(course.course_id, { status: nextStatus })
+      setCourses((current) => current.map((item) => item.course_id === course.course_id ? res.data.course : item))
+      setStatus(`课程「${course.title}」状态已更新。`)
+    } catch (error: any) {
+      setStatus(error?.response?.data?.detail || '课程状态更新失败。')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const downloadAdminMaterial = async (material: CourseMaterial) => {
+    try {
+      const res = await teacherApi.downloadCourseMaterial(material.material_id)
+      const blob = new Blob([res.data], { type: material.mime_type || 'application/octet-stream' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = material.original_filename
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+    } catch (error: any) {
+      setStatus(error?.response?.data?.detail || '课程资料下载失败。')
+    }
+  }
+
+  return (
+    <div className="course-portal min-h-screen admin-page">
+      <header className="portal-nav admin-nav">
+        <BrandBlock />
+        <nav className="portal-login" aria-label="管理端操作">
+          <button type="button" onClick={onBack}><Home className="h-4 w-4" />课程广场</button>
+          <button type="button" onClick={onLogout}><LockKeyhole className="h-4 w-4" />退出登录</button>
+        </nav>
+      </header>
+      <main className="portal-main admin-main">
+        <section className="portal-hero admin-hero">
+          <div className="portal-hero-copy">
+            <p className="portal-kicker">平台管理中心</p>
+            <h1>
+              <span>管理平台与课程</span>
+              <span>统一维护用户、课程和运行概览</span>
+            </h1>
+            <span>在这里可以查看平台概览、审核教师提交的课程，并直接看到课程内容与上传资料。</span>
+            <div className="portal-hero-chips" aria-label="管理端能力">
+              <span><UserRound className="h-3.5 w-3.5" />用户管理</span>
+              <span><ShieldCheck className="h-3.5 w-3.5" />课程审核</span>
+              <span><BarChart3 className="h-3.5 w-3.5" />平台概览</span>
+              <span><LockKeyhole className="h-3.5 w-3.5" />权限控制</span>
+            </div>
+          </div>
+          <aside className="portal-login-card admin-summary-card">
+            <strong>管理概览</strong>
+            <div className="admin-summary-grid">
+              {[
+                ['用户', stats.users],
+                ['课程', stats.courses],
+                ['会话', stats.sessions],
+                ['资源', stats.resources],
+              ].map(([label, value]) => (
+                <div key={label}>
+                  <span>{label}</span>
+                  <strong>{typeof value === 'number' ? value : 0}</strong>
+                </div>
+              ))}
+            </div>
+            <p className="admin-status">{loading ? '正在更新概览...' : status}</p>
+          </aside>
+        </section>
+
+        <section className="admin-stat-row">
+          {[
+            ['用户', stats.users],
+            ['课程', stats.courses],
+            ['会话', stats.sessions],
+            ['资源', stats.resources],
+          ].map(([label, value]) => (
+            <article key={label}>
+              <span>{label}</span>
+              <strong>{typeof value === 'number' ? value : 0}</strong>
+            </article>
+          ))}
+        </section>
+
+        <section className="admin-grid">
+          <section className="portal-section admin-panel">
+            <div className="role-panel-title">
+              <UserRound className="h-5 w-5" />
+              <div>
+                <h2>用户管理</h2>
+                <span>{users.length ? `共 ${users.length} 个账号` : '暂无用户'}</span>
+              </div>
+            </div>
+            {users.length ? users.map((user) => (
+              <article className="role-user-row" key={user.username}>
+                <strong>{user.username}</strong>
+                <span>{user.role}</span>
+              </article>
+            )) : <div className="role-empty-state">当前暂无用户。</div>}
+          </section>
+
+          <section className="portal-section admin-panel admin-panel-wide">
+            <div className="role-panel-title">
+              <ShieldCheck className="h-5 w-5" />
+              <div>
+                <h2>课程管理</h2>
+                <span>{courses.length ? `共 ${courses.length} 门课程` : '暂无课程'}</span>
+              </div>
+            </div>
+            {courses.length ? (
+              <div className="role-course-list">
+                {courses.map((course) => (
+                  <article key={course.course_id}>
+                    <div>
+                      <strong>{course.title}</strong>
+                      <span>{course.category} · {course.teacher_username} · {getCourseStatusLabel(course.status)}</span>
+                      <p>{course.summary}</p>
+                      <div className="admin-course-materials">
+                        <span>课程内容</span>
+                        <div className="admin-course-material-list">
+                          {(course.materials || []).length ? (
+                            course.materials!.map((material) => (
+                              <article key={material.material_id}>
+                                <div>
+                                  <strong>{material.original_filename}</strong>
+                                  <span>{formatFileSize(material.file_size)} · {material.note || '无备注'}</span>
+                                </div>
+                                <button type="button" onClick={() => void downloadAdminMaterial(material)} title="下载资料">
+                                  <Download className="h-3.5 w-3.5" />
+                                </button>
+                              </article>
+                            ))
+                          ) : (
+                            <div className="admin-course-empty-material">暂无课程资料</div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="admin-course-actions">
+                      {course.status === 'published' ? (
+                        <button type="button" disabled>已发布</button>
+                      ) : (
+                        <button type="button" onClick={() => setCourseStatus(course, 'published')}>发布课程</button>
+                      )}
+                      <button type="button" onClick={() => setCourseStatus(course, 'draft')}>退回修改</button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="role-empty-state">当前暂无课程。</div>
+            )}
+            <p className="role-panel-note">{loading ? '正在更新...' : status}</p>
+          </section>
+        </section>
+      </main>
+      <FloatingAssistant activeNav="profile" selectedConcept="管理工作台" roleContext="admin" />
+    </div>
+  )
+}
+
 export default App
+

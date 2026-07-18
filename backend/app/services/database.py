@@ -1,4 +1,4 @@
-"""SQLite 持久化与学习行为日志
+﻿"""SQLite 持久化与学习行为日志
 
 对应需求：
 - 为系统提供轻量级持久化层，保存学习会话、画像、生成任务、资源、
@@ -85,8 +85,13 @@ def init_db(db: Database):
         db["users"].create({
             "username": str,
             "hashed_password": str,
+            "role": str,
             "created_at": str,
         }, pk="username")
+    else:
+        existing_cols = {c.name for c in db["users"].columns}
+        if "role" not in existing_cols:
+            db.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'student'")
 
     # === 资源生成任务 ===
     if "generation_task" not in db.table_names():
@@ -250,17 +255,48 @@ def init_db(db: Database):
         db["agent_traces"].create_index(["agent_name"], if_not_exists=True)
         db["agent_traces"].create_index(["session_id", "created_at"], if_not_exists=True)
 
+    if "courses" not in db.table_names():
+        db["courses"].create({
+            "course_id": str,
+            "title": str,
+            "category": str,
+            "summary": str,
+            "teacher_username": str,
+            "status": str,
+            "created_at": str,
+            "updated_at": str,
+        }, pk="course_id", if_not_exists=True)
+        db["courses"].create_index(["teacher_username"], if_not_exists=True)
+        db["courses"].create_index(["status"], if_not_exists=True)
+
+    if "course_materials" not in db.table_names():
+        db["course_materials"].create({
+            "material_id": str,
+            "course_id": str,
+            "teacher_username": str,
+            "original_filename": str,
+            "stored_filename": str,
+            "mime_type": str,
+            "file_size": int,
+            "note": str,
+            "created_at": str,
+            "updated_at": str,
+        }, pk="material_id", if_not_exists=True)
+        db["course_materials"].create_index(["course_id"], if_not_exists=True)
+        db["course_materials"].create_index(["teacher_username"], if_not_exists=True)
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def create_user(username: str, hashed_password: str):
+def create_user(username: str, hashed_password: str, role: str = "student"):
     db = get_db()
     try:
         db["users"].insert({
             "username": username,
             "hashed_password": hashed_password,
+            "role": role,
             "created_at": _now(),
         })
     finally:
@@ -276,6 +312,7 @@ def get_user(username: str) -> Optional[dict]:
         return {
             "username": row["username"],
             "hashed_password": row["hashed_password"],
+            "role": row.get("role") or "student",
             "created_at": row["created_at"],
         }
     except Exception:
@@ -1296,3 +1333,216 @@ def get_profile_confidence(session_id: str) -> float:
     bonus = min(total_weight / 20.0, 0.3)
 
     return round(min(base * 0.7 + bonus, 1.0), 2)
+
+
+def _course_from_row(row: dict) -> dict:
+    return {
+        "course_id": row["course_id"],
+        "title": row["title"],
+        "category": row["category"],
+        "summary": row["summary"],
+        "teacher_username": row["teacher_username"],
+        "status": row["status"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def list_users() -> List[dict]:
+    db = get_db()
+    try:
+        rows = list(db["users"].rows)
+        rows.sort(key=lambda row: row.get("created_at") or "", reverse=True)
+        return [
+            {
+                "username": row["username"],
+                "role": row.get("role") or "student",
+                "created_at": row.get("created_at") or "",
+            }
+            for row in rows
+        ]
+    finally:
+        db.conn.close()
+
+
+def create_course(title: str, category: str, summary: str, teacher_username: str, status: str = "draft") -> dict:
+    import uuid
+
+    now = _now()
+    course = {
+        "course_id": str(uuid.uuid4()),
+        "title": title,
+        "category": category,
+        "summary": summary,
+        "teacher_username": teacher_username,
+        "status": status,
+        "created_at": now,
+        "updated_at": now,
+    }
+    db = get_db()
+    try:
+        db["courses"].insert(course)
+        return course
+    finally:
+        db.conn.close()
+
+
+def list_courses(teacher_username: Optional[str] = None, status: Optional[str] = None) -> List[dict]:
+    db = get_db()
+    try:
+        conditions = []
+        params: List[Any] = []
+        if teacher_username:
+            conditions.append("teacher_username = ?")
+            params.append(teacher_username)
+        if status:
+            conditions.append("status = ?")
+            params.append(status)
+        if conditions:
+            rows = list(db["courses"].rows_where(" AND ".join(conditions), params))
+        else:
+            rows = list(db["courses"].rows)
+        rows.sort(key=lambda row: row.get("updated_at") or "", reverse=True)
+        return [_course_from_row(row) for row in rows]
+    finally:
+        db.conn.close()
+
+
+def get_course(course_id: str) -> Optional[dict]:
+    db = get_db()
+    try:
+        try:
+            row = db["courses"].get(course_id)
+        except Exception:
+            return None
+        return _course_from_row(row) if row else None
+    finally:
+        db.conn.close()
+
+
+def update_course(course_id: str, updates: Dict[str, Any]) -> Optional[dict]:
+    allowed = {"title", "category", "summary", "status"}
+    clean = {key: value for key, value in updates.items() if key in allowed and value is not None}
+    if not clean:
+        return get_course(course_id)
+    clean["updated_at"] = _now()
+    db = get_db()
+    try:
+        try:
+            db["courses"].update(course_id, clean)
+        except Exception:
+            return None
+    finally:
+        db.conn.close()
+    return get_course(course_id)
+
+
+def delete_course(course_id: str) -> Optional[dict]:
+    course = get_course(course_id)
+    if not course:
+        return None
+    db = get_db()
+    try:
+        try:
+            db["courses"].delete(course_id)
+        except Exception:
+            return None
+        return course
+    finally:
+        db.conn.close()
+
+
+def _materials_dir() -> str:
+    base_dir = os.path.dirname(_db_path())
+    path = os.path.join(base_dir, "uploads", "course_materials")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def get_course_material_file_path(stored_filename: str) -> str:
+    return os.path.join(_materials_dir(), stored_filename)
+
+
+def _material_from_row(row: dict) -> dict:
+    return {
+        "material_id": row["material_id"],
+        "course_id": row["course_id"],
+        "teacher_username": row["teacher_username"],
+        "original_filename": row["original_filename"],
+        "stored_filename": row["stored_filename"],
+        "mime_type": row["mime_type"],
+        "file_size": row["file_size"],
+        "note": row["note"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def create_course_material(
+    material_id: str,
+    course_id: str,
+    teacher_username: str,
+    original_filename: str,
+    stored_filename: str,
+    mime_type: str,
+    file_size: int,
+    note: str = "",
+) -> dict:
+    now = _now()
+    record = {
+        "material_id": material_id,
+        "course_id": course_id,
+        "teacher_username": teacher_username,
+        "original_filename": original_filename,
+        "stored_filename": stored_filename,
+        "mime_type": mime_type,
+        "file_size": file_size,
+        "note": note,
+        "created_at": now,
+        "updated_at": now,
+    }
+    db = get_db()
+    try:
+        db["course_materials"].insert(record)
+        return record
+    finally:
+        db.conn.close()
+
+
+def list_course_materials(course_id: str) -> List[dict]:
+    db = get_db()
+    try:
+        rows = list(db["course_materials"].rows_where("course_id = ?", [course_id]))
+        rows.sort(key=lambda row: row.get("created_at") or "", reverse=True)
+        return [_material_from_row(row) for row in rows]
+    finally:
+        db.conn.close()
+
+
+def get_course_material(material_id: str) -> Optional[dict]:
+    db = get_db()
+    try:
+        try:
+            row = db["course_materials"].get(material_id)
+        except Exception:
+            return None
+        return _material_from_row(row) if row else None
+    finally:
+        db.conn.close()
+
+
+def delete_course_material(material_id: str) -> Optional[dict]:
+    material = get_course_material(material_id)
+    if not material:
+        return None
+    db = get_db()
+    try:
+        try:
+            db["course_materials"].delete(material_id)
+        except Exception:
+            return None
+        return material
+    finally:
+        db.conn.close()
+
+

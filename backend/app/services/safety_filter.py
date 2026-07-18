@@ -1,4 +1,4 @@
-"""输入安全过滤与敏感词检测
+﻿"""输入安全过滤与敏感词检测
 
 对应需求：
 - 在用户输入到达下游 Agent 之前进行本地轻量级安全审查。
@@ -79,3 +79,4 @@ def get_safety_filter() -> ContentSafetyFilter:
     if _safety_filter is None:
         _safety_filter = ContentSafetyFilter()
     return _safety_filter
+

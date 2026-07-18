@@ -1,4 +1,4 @@
-"""资源生成结果持久化缓存
+﻿"""资源生成结果持久化缓存
 
 对应需求：
 - 避免对同一知识点/相似画像重复调用 LLM，降低调用成本与响应延迟。
@@ -150,3 +150,4 @@ def get_cache_stats(concept: Optional[str] = None) -> Dict[str, int]:
     else:
         total = len(list(table.rows))
     return {"total": total}
+

@@ -1,4 +1,4 @@
-"""学习会话 API
+﻿"""学习会话 API
 
 对应需求/功能：
 - 管理学生学习会话，包括创建、查询、列表、画像、学习事件记录、聊天与评估。
@@ -619,3 +619,4 @@ async def evaluate_session(session_id: str, request: Request):
             "chat_turns": chat_turns,
         },
     }
+

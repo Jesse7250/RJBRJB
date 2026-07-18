@@ -1,4 +1,4 @@
-"""backend.app.api 包标记
+﻿"""backend.app.api 包标记
 
 聚合 FastAPI 路由模块，提供 RESTful API 入口。
 
@@ -7,3 +7,4 @@ TODO:
 - [待完成] 统一注册并导出所有路由模块
 - [待完成] 添加 API 版本与 openapi tags 常量
 """
+

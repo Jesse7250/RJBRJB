@@ -1,4 +1,4 @@
-"""苏格拉底式辅导模块（Reviewer 内部子能力）
+﻿"""苏格拉底式辅导模块（Reviewer 内部子能力）
 
 对应需求/功能：
 - 当学生遇到代码错误时，不直接给出答案，而是通过引导式提问帮助学生自主发现问题。
@@ -164,3 +164,4 @@ class SocratesTutor(BaseAgent):
             },
         }
         return dict(templates.get(stage, templates["clarification"]))
+

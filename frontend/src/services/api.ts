@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 需求：前端与后端 REST/SSE 通信层。
  * 功能：
  *   - 配置 axios 实例与统一 baseURL；
@@ -33,6 +33,38 @@ export interface AuthTokenResponse {
   access_token: string
   token_type: string
   username: string
+  role: UserRole
+}
+
+export type UserRole = 'student' | 'teacher' | 'admin'
+
+export interface CourseRecord {
+  course_id: string
+  title: string
+  category: string
+  summary: string
+  teacher_username: string
+  status: string
+  created_at: string
+  updated_at: string
+}
+
+export interface CourseMaterial {
+  material_id: string
+  course_id: string
+  teacher_username: string
+  original_filename: string
+  stored_filename: string
+  mime_type: string
+  file_size: number
+  note: string
+  created_at: string
+  updated_at: string
+}
+
+export interface AdminCourseRecord extends CourseRecord {
+  materials?: CourseMaterial[]
+  materials_count?: number
 }
 
 export interface LearningPlanItem {
@@ -196,8 +228,8 @@ export const authApi = {
     })
   },
 
-  register: (username: string, password: string) =>
-    api.post<AuthTokenResponse>('/auth/register', { username, password }),
+  register: (username: string, password: string, role: UserRole = 'student') =>
+    api.post<AuthTokenResponse>('/auth/register', { username, password, role }),
 
   logout: () => api.post('/auth/logout'),
 }
@@ -388,8 +420,18 @@ export const evaluationApi = {
 }
 
 export const assistantApi = {
-  ask: (question: string) =>
-    api.post<{ answer: string }>('/assistant/ask', { question }),
+  ask: (
+    question: string,
+    context?: {
+      role_context?: 'student' | 'teacher' | 'admin'
+      page_context?: string
+      selected_concept?: string
+    },
+  ) =>
+    api.post<{ answer: string }>('/assistant/ask', {
+      question,
+      ...context,
+    }),
 }
 
 export const ttsApi = {
@@ -402,3 +444,39 @@ export const ttsApi = {
 }
 
 export default api
+
+export const teacherApi = {
+  getCourses: () => api.get<{ courses: CourseRecord[] }>('/teacher/courses'),
+  getPublishedCourses: () => api.get<{ courses: CourseRecord[] }>('/teacher/public/courses'),
+  createCourse: (data: { title: string; category: string; summary: string; status?: string }) =>
+    api.post<{ success: boolean; course: CourseRecord }>('/teacher/courses', data),
+  updateCourse: (courseId: string, data: Partial<Pick<CourseRecord, 'title' | 'category' | 'summary' | 'status'>>) =>
+    api.patch<{ success: boolean; course: CourseRecord }>(`/teacher/courses/${courseId}`, data),
+  deleteCourse: (courseId: string) =>
+    api.delete<{ success: boolean; course: CourseRecord; courses: CourseRecord[] }>(`/teacher/courses/${courseId}`),
+  getCourseMaterials: (courseId: string) =>
+    api.get<{ course: CourseRecord; materials: CourseMaterial[] }>(`/teacher/courses/${courseId}/materials`),
+  getPublicCourseMaterials: (courseId: string) =>
+    api.get<{ course: CourseRecord; materials: CourseMaterial[] }>(`/teacher/public/courses/${courseId}/materials`),
+  uploadCourseMaterial: (courseId: string, formData: FormData) =>
+    api.post<{ success: boolean; course?: CourseRecord; material: CourseMaterial; materials: CourseMaterial[] }>(
+      `/teacher/courses/${courseId}/materials`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } },
+    ),
+  deleteCourseMaterial: (materialId: string) =>
+    api.delete<{ success: boolean; course?: CourseRecord; material: CourseMaterial; materials: CourseMaterial[] }>(`/teacher/materials/${materialId}`),
+  downloadCourseMaterial: (materialId: string) =>
+    api.get(`/teacher/materials/${materialId}/download`, { responseType: 'blob' }),
+  downloadCourseMaterialUrl: (materialId: string, publicView = false) =>
+    `/api/teacher/${publicView ? 'public/' : ''}materials/${materialId}/download`,
+}
+
+export const adminApi = {
+  getStats: () => api.get<{ status: string; stats: Record<string, number> }>('/admin/stats'),
+  getUsers: () => api.get<{ users: Array<{ username: string; role: UserRole; created_at: string }> }>('/admin/users'),
+  getCourses: () => api.get<{ courses: AdminCourseRecord[] }>('/admin/courses'),
+  updateCourse: (courseId: string, data: Partial<Pick<CourseRecord, 'title' | 'category' | 'summary' | 'status'>>) =>
+    api.patch<{ success: boolean; course: AdminCourseRecord }>(`/admin/courses/${courseId}`, data),
+}
+

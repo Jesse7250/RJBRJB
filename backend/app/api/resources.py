@@ -1,4 +1,4 @@
-"""资源生成 API
+﻿"""资源生成 API
 
 对应需求/功能：
 - 为前端提供教学资源生成接口，支持同步生成与 SSE 流式生成两种模式。
@@ -558,3 +558,4 @@ async def get_thinking_path(concept: str):
             for step in _DEFAULT_THINKING_STEPS
         ]
     return {"concept": concept, "steps": steps}
+

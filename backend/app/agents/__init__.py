@@ -1,4 +1,4 @@
-"""多智能体系统
+﻿"""多智能体系统
 
 对应需求/功能：
 - 智学蜂巢 EduHive 的后端多智能体包，对外暴露所有 Agent 类。
@@ -37,3 +37,4 @@ __all__ = [
     "ReviewerAgent",
     "AgentOrchestrator",
 ]
+

@@ -1,4 +1,4 @@
-"""ReviewerAgent：审核 + 辅导 + 评估三位一体
+﻿"""ReviewerAgent：审核 + 辅导 + 评估三位一体
 
 对应需求/功能：
 - 对外呈现为单一 Agent，内部聚合三种能力：
@@ -339,3 +339,4 @@ class ReviewerAgent(BaseAgent):
             }, ["cache_key"])
         finally:
             db.conn.close()
+

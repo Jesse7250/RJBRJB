@@ -1,4 +1,4 @@
-"""知识图谱存储抽象接口
+﻿"""知识图谱存储抽象接口
 
 对应需求：
 - 统一知识图谱的存储抽象，使业务层不依赖具体后端。
@@ -93,3 +93,4 @@ class GraphStore(ABC):
             module = c.get("module", "未分类")
             modules.setdefault(module, []).append(c)
         return modules
+

@@ -1,4 +1,4 @@
-"""讯飞星火大模型 API 封装
+﻿"""讯飞星火大模型 API 封装
 
 对应需求：
 - 为智学蜂巢提供备选大模型调用能力，在国内网络环境下作为 DeepSeek 的 fallback。
@@ -237,5 +237,6 @@ class SparkLLM:
                 yield chunk
             except StopIteration:
                 break
+
 
 

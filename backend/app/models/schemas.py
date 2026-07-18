@@ -1,4 +1,4 @@
-"""Pydantic 数据模型
+﻿"""Pydantic 数据模型
 
 对应需求：
 - 定义智学蜂巢前后端交互的请求体、响应体与内部数据结构。
@@ -269,3 +269,4 @@ class ResourceFeedbackStats(BaseModel):
     confusion_rate: float
     average_rating: Optional[float]
     error_reports: List[str]
+

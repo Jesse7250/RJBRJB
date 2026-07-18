@@ -1,4 +1,4 @@
-"""基于认知风格证据自动推断和更新学生画像
+﻿"""基于认知风格证据自动推断和更新学生画像
 
 前端通过 /behavior 和 /events 接口上报学习行为，这些行为被记录为
 cognitive_profile_evidence。本模块根据证据的权重和类型，自动推断学生的：
@@ -175,3 +175,4 @@ def update_profile_from_evidence(
         "changes": updates,
         "profile": profile,
     }
+

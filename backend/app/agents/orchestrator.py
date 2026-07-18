@@ -1,4 +1,4 @@
-"""Agent Orchestrator：多智能体编排与路由（5 角色分层版）
+﻿"""Agent Orchestrator：多智能体编排与路由（5 角色分层版）
 
 对应需求/功能：
 - 作为多智能体系统的总调度器，接收用户输入、维护会话状态、按教育 SOP
@@ -825,3 +825,4 @@ class AgentOrchestrator:
             if kw in message:
                 return kw
         return None
+

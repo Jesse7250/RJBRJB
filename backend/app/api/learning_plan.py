@@ -1,4 +1,4 @@
-"""学习规划 API
+﻿"""学习规划 API
 
 根据学生当前画像、已掌握知识点与目标知识点，生成个性化学习规划。
 """
@@ -71,3 +71,4 @@ async def get_learning_plan(session_id: str):
         "total_minutes": total_minutes,
         "plan": plan,
     }
+

@@ -1,4 +1,4 @@
-"""LLM 提供层
+﻿"""LLM 提供层
 
 对应需求/功能：
 - 为所有 Agent 提供统一的大模型调用抽象，屏蔽底层不同 LLM 提供商的差异。
@@ -260,3 +260,4 @@ def get_llm_provider() -> BaseLLM:
         return MockLLMProvider()
 
     raise ValueError(f"未知的 LLM 提供者: {provider}")
+

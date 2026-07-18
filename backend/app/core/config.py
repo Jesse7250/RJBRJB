@@ -1,4 +1,4 @@
-"""应用配置
+﻿"""应用配置
 
 对应需求：
 - 集中管理智学蜂巢后端的所有环境变量与运行时配置。
@@ -84,3 +84,4 @@ class Settings(BaseSettings):
 @lru_cache()
 def get_settings() -> Settings:
     return Settings()
+

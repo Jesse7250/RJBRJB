@@ -1,4 +1,4 @@
-"""学习效果评估模块（Reviewer 内部子能力）
+﻿"""学习效果评估模块（Reviewer 内部子能力）
 
 对应需求/功能：
 - 基于学生的学习行为数据（练习结果、代码运行记录、画像）评估学习效果。
@@ -136,3 +136,4 @@ class LearningEvaluator(BaseAgent):
         # 简单线性更新：delta 越大、当前掌握度越低时提升越多
         new_p = min(1.0, max(0.0, current + delta * (1 - current)))
         return new_p
+

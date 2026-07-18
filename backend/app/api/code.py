@@ -1,4 +1,4 @@
-"""代码执行与判题 API
+﻿"""代码执行与判题 API
 
 对应需求/功能：
 - 提供 Python 代码在线执行与判题能力，供前端练习/调试使用。
@@ -275,3 +275,4 @@ async def judge_exercise(
         "knowledge_furnace_triggered": triggered,
         "concept": concept,
     }
+

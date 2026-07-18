@@ -1,4 +1,4 @@
-"""Agent 基类与统一消息协议
+﻿"""Agent 基类与统一消息协议
 
 对应需求/功能：
 - 为智学蜂巢多智能体系统定义统一的 Agent 抽象与消息格式。
@@ -97,3 +97,4 @@ class BaseAgent:
     def run(self, message: AgentMessage) -> AgentMessage:
         """统一入口，子类必须实现"""
         raise NotImplementedError(f"{self.__class__.__name__} 未实现 run 方法")
+

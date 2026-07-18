@@ -1,4 +1,4 @@
-"""知识图谱存储工厂
+﻿"""知识图谱存储工厂
 
 对应需求：
 - 根据运行环境（开发/测试/生产）自动选择合适的知识图谱后端。
@@ -66,3 +66,4 @@ def get_graph_store() -> GraphStore:
             return GRAPH_STORE_INSTANCE
 
     raise ValueError(f"未知的图存储后端: {backend}")
+
