@@ -5,7 +5,7 @@
  *   - 📖 文字型：纯讲义 Markdown 文本，干净无干扰；
  *   - 👁 视觉型：讲义上方嵌入 B站讲解视频，视频下方保留讲义文本；
  *   - 👂 听觉型：展示讲解稿 + 朗读按钮，使用浏览器 TTS 语音合成朗读；
- *   - 保留动觉型兼容（代码实操导向）。
+ *   - 保留实践型兼容（代码实操导向）。
  *
  * TODO:
  * - [已完成] 风格切换器与三种渲染模式
@@ -32,15 +32,27 @@ interface Props {
 }
 
 // ─── 知识点 → B站视频映射 ───
+// 只展示与当前课程节点明确匹配的视频。没有命中时显示“暂无相关视频”，避免无关视频影响评委观感。
 const CONCEPT_VIDEOS: Record<string, { bvid: string; title: string; page?: number }> = {
   '变量与赋值': { bvid: 'BV1dGmMBAE6h', title: '变量与赋值·动画讲解（零基础）', page: 2 },
+  '变量基础': { bvid: 'BV1dGmMBAE6h', title: '变量与赋值·动画讲解（零基础）', page: 2 },
   '变量': { bvid: 'BV1dGmMBAE6h', title: '变量与赋值·动画讲解（零基础）', page: 2 },
+  '循环结构': { bvid: 'BV1zz4y1n7Yd', title: 'Python for 循环结构课程讲解', page: 1 },
+  'for循环': { bvid: 'BV1zz4y1n7Yd', title: 'Python for 循环结构课程讲解', page: 1 },
+  'for': { bvid: 'BV1zz4y1n7Yd', title: 'Python for 循环结构课程讲解', page: 1 },
+}
+
+function normalizeVideoKey(value?: string) {
+  return (value || '').replace(/\s+/g, '').toLowerCase()
 }
 
 function resolveVideo(concept?: string) {
-  if (!concept) return null
-  if (concept && CONCEPT_VIDEOS[concept]) return CONCEPT_VIDEOS[concept]
-  const matchedKey = Object.keys(CONCEPT_VIDEOS).find((key) => concept.includes(key) || key.includes(concept))
+  const conceptKey = normalizeVideoKey(concept)
+  if (!conceptKey) return null
+  const matchedKey = Object.keys(CONCEPT_VIDEOS).find((key) => {
+    const videoKey = normalizeVideoKey(key)
+    return conceptKey === videoKey || conceptKey.includes(videoKey) || videoKey.includes(conceptKey)
+  })
   return matchedKey ? CONCEPT_VIDEOS[matchedKey] : null
 }
 
@@ -49,7 +61,7 @@ const STYLES: { key: CognitiveStyle; label: string; icon: React.ElementType; des
   { key: 'text', label: '文字型', icon: BookOpenText, desc: '纯讲义文本' },
   { key: 'visual', label: '视觉型', icon: MonitorPlay, desc: '视频 + 讲义' },
   { key: 'auditory', label: '听觉型', icon: AudioLines, desc: '朗读讲解' },
-  { key: 'kinesthetic', label: '动觉型', icon: Hand, desc: '动手 + 代码' },
+  { key: 'kinesthetic', label: '实践型', icon: Hand, desc: '动手 + 代码' },
 ]
 
 export function CognitiveStyleToggle({
@@ -409,7 +421,7 @@ export function CognitiveStylePanel({
       {currentStyle === 'auditory' && <TTSReader text={audioText || ''} concept={concept} />}
       {currentStyle === 'kinesthetic' && (
         <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-xs font-semibold text-emerald-800">
-          💡 动觉学习模式：建议先阅读代码案例，然后自己动手修改并运行，最后再回看讲解。
+          实践学习模式：建议先阅读代码案例，然后自己动手修改并运行，最后再回看讲解。
         </div>
       )}
       <div className={cn('transition-opacity', currentStyle === 'auditory' ? 'opacity-90' : 'opacity-100')}>

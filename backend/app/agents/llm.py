@@ -190,11 +190,11 @@ practice()
         return """{
   "knowledge_level": 2.0,
   "cognitive_field": "dependent",
-  "cognitive_modality": "visual",
+  "cognitive_modality": "unknown",
   "learning_pace": "normal",
   "goal_orientation": "application",
-  "error_patterns": ["syntax"],
-  "mastered_concepts": ["Python简介", "变量与赋值"],
+  "error_patterns": [],
+  "mastered_concepts": [],
   " inferred_from": "mock"
 }"""
 

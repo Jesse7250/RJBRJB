@@ -53,7 +53,17 @@ export function ProfilePanel({
   const [evidence, setEvidence] = useState<Record<string, EvidenceItem[]>>({})
   const [evidenceOpen, setEvidenceOpen] = useState(false)
   const [confidence, setConfidence] = useState(0)
-  const modality = profile?.cognitive_modality === 'text' ? '文字型' : profile?.cognitive_modality === 'visual' ? '视觉型' : profile?.cognitive_modality === 'auditory' ? '听觉型' : profile?.cognitive_modality === 'kinesthetic' ? '动觉型' : '视觉型'
+  const hasModalityEvidence = Boolean(evidence.cognitive_modality?.length)
+  const hasPaceEvidence = Boolean(evidence.learning_pace?.length)
+  const rawModality = profile?.cognitive_modality
+  const modality = !hasModalityEvidence && rawModality === 'visual'
+    ? '待校准'
+    : rawModality === 'text' ? '文字型' : rawModality === 'visual' ? '视觉型' : rawModality === 'auditory' ? '听觉型' : rawModality === 'kinesthetic' ? '实践型' : '待校准'
+  const paceLabel = !hasPaceEvidence ? '待校准' : profile?.learning_pace === 'fast' ? '快速推进' : profile?.learning_pace === 'slow' ? '需要放慢讲解' : '稳步推进'
+  const interventionLabel = !hasPaceEvidence ? '继续观察' : profile?.learning_pace === 'fast' ? '挑战题' : profile?.learning_pace === 'slow' ? '分步讲解' : '路径巩固'
+  const errorPatterns = profile?.error_patterns?.filter(Boolean) || []
+  const masteredConcepts = profile?.mastered_concepts?.filter(Boolean) || []
+  const knowledgeLevel = typeof profile?.knowledge_level === 'number' ? profile.knowledge_level : 1
 
   useEffect(() => {
     if (!session?.session_id) return
@@ -92,9 +102,9 @@ export function ProfilePanel({
           <span>目标：{session?.target_concept || targetConcept}</span>
         </div>
         <div className="profile-summary">
-          <ProfileLine label="知识水平" value={`${profile?.knowledge_level ?? 3}/5`} blocks={profile?.knowledge_level ?? 3} />
+          <ProfileLine label="知识水平" value={session ? `${knowledgeLevel}/5` : '待同步'} blocks={session ? knowledgeLevel : undefined} />
           <ProfileLine label="认知风格" value={modality} />
-          <ProfileLine label="学习节奏" value={profile?.learning_pace || '稳步推进'} spark />
+          <ProfileLine label="学习节奏" value={paceLabel} spark />
           <ProfileLine label="学习目标" value={`通过「${session?.target_concept || targetConcept}」练习`} />
           <p className="profile-mastered">已掌握 {masteredCount} 个关键节点</p>
         </div>
@@ -108,15 +118,15 @@ export function ProfilePanel({
         >
           <div>
             <strong>学习偏好</strong>
-            <span>{modality}学习者，适合图示、路径图和代码运行反馈联动。</span>
+            <span>{modality === '待校准' ? '继续完成学习、练习和资源浏览后，系统会逐步校准学习偏好。' : `当前更偏向${modality}学习；系统会结合后续行为继续校准。`}</span>
           </div>
           <div>
             <strong>易错模式</strong>
-            <span>{profile?.error_patterns?.slice(0, 2).join('、') || '文件路径、编码格式、异常处理'}</span>
+            <span>{errorPatterns.length ? errorPatterns.slice(0, 2).join('、') : '暂无明显易错模式'}</span>
           </div>
           <div>
             <strong>已掌握概念</strong>
-            <span>{profile?.mastered_concepts?.slice(0, 3).join('、') || '变量基础、条件判断、循环结构'}</span>
+            <span>{masteredConcepts.length ? masteredConcepts.slice(0, 3).join('、') : '暂无已确认掌握概念'}</span>
           </div>
         </motion.div>
       )}
@@ -165,8 +175,8 @@ export function ProfilePanel({
           <strong>{masteredCount} / {totalConcepts > 0 ? totalConcepts : '--'}</strong>
         </div>
         <div>
-          <span>推荐干预（前端推断）</span>
-          <strong>{profile?.learning_pace === 'fast' ? '挑战题' : profile?.learning_pace === 'slow' ? '分步讲解' : '路径巩固'}</strong>
+          <span>推荐干预</span>
+          <strong>{interventionLabel}</strong>
         </div>
       </div>
     </Panel>

@@ -25,6 +25,7 @@ from typing import Dict, Optional
 from app.services.database import (
     get_session_events,
     get_mastery_state,
+    get_related_session_ids,
     update_mastery_state,
     get_mastery_heatmap,
     list_code_submissions,
@@ -186,23 +187,43 @@ class BKTTracker:
     def load_from_session(self, session_id: str):
         """从会话历史记录中恢复 BKT 状态
 
-        优先从 mastery_state 表读取已持久化的掌握度，
-        再读取 learning_events 中的 exercise_submitted 事件作为补充。
+        登录用户按账号聚合历史 session，匿名用户只读取当前 session。
+        优先从原始学习事件/代码提交重建，确保旧 session 的练习记录
+        在重新登录后仍能参与掌握度计算。
         每次加载前清空当前模型，避免不同会话之间状态串扰。
         """
         self.models.clear()
         self.last_updated.clear()
 
-        # 优先从 mastery_state 恢复
-        states = get_mastery_state(session_id)
-        states_concepts = {s["concept"] for s in states}
-        for s in states:
-            model = self.get_or_create_model(s["concept"])
-            model.probability = s["p_known"]
-            model.observation_count = s["evidence_count"]
-            self.last_updated[s["concept"]] = s.get("last_updated")
+        session_ids = get_related_session_ids(session_id)
+        state_rows = []
+        observed_concepts = set()
+        seen_observations = set()
+        submission_signatures = set()
 
-        # 从 learning_events 事件补充（处理 mastery_state 未覆盖的情况）
+        for sid in session_ids:
+            for s in get_mastery_state(sid):
+                state_rows.append(s)
+                if s.get("last_updated"):
+                    self.last_updated[s["concept"]] = s.get("last_updated")
+
+            submissions = list_code_submissions(sid)
+            for sub in submissions:
+                concept = sub.get("concept")
+                if sub.get("passed") is not None:
+                    passed = sub["passed"]
+                else:
+                    passed = sub.get("output") == sub.get("expected_output")
+                if concept and passed is not None:
+                    signature = (sid, concept, sub.get("code", ""), bool(passed))
+                    submission_signatures.add(signature)
+                    key = ("submission", sub.get("submission_id") or sid, concept, sub.get("created_at") or "", bool(passed))
+                    if key in seen_observations:
+                        continue
+                    seen_observations.add(key)
+                    observed_concepts.add(concept)
+                    self.record_observation(concept, bool(passed))
+
         events = get_session_events(session_id, event_type="exercise_submitted")
         for event in events:
             payload = event.get("payload", {})
@@ -210,19 +231,27 @@ class BKTTracker:
                 payload = json.loads(payload)
             concept = event.get("concept") or payload.get("_concept") or payload.get("concept")
             passed = payload.get("passed") if payload.get("passed") is not None else payload.get("is_correct")
-            if concept and passed is not None and concept not in states_concepts:
+            if concept and passed is not None:
+                event_session_id = event.get("session_id") or session_id
+                signature = (event_session_id, concept, payload.get("code", ""), bool(passed))
+                if payload.get("code") and signature in submission_signatures:
+                    continue
+                key = ("event", event.get("id") or event_session_id, concept, event.get("created_at") or "", bool(passed))
+                if key in seen_observations:
+                    continue
+                seen_observations.add(key)
+                observed_concepts.add(concept)
                 self.record_observation(concept, bool(passed))
 
-        # 从 code_submissions 中加载
-        submissions = list_code_submissions(session_id)
-        for sub in submissions:
-            concept = sub.get("concept")
-            if sub.get("passed") is not None:
-                passed = sub["passed"]
-            else:
-                passed = sub.get("output") == sub.get("expected_output")
-            if concept and passed is not None and concept not in states_concepts:
-                self.record_observation(concept, bool(passed))
+        # 兼容只有 mastery_state、没有原始事件的旧数据。
+        for s in sorted(state_rows, key=lambda row: row.get("last_updated") or ""):
+            concept = s["concept"]
+            if concept in observed_concepts:
+                continue
+            model = self.get_or_create_model(concept)
+            model.probability = s["p_known"]
+            model.observation_count = s["evidence_count"]
+            self.last_updated[concept] = s.get("last_updated")
 
     def persist_to_session(self, session_id: str):
         """将当前 BKT 状态持久化到 mastery_state 表"""

@@ -29,7 +29,7 @@ TODO:
 import json
 import os
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from sqlite_utils import Database
@@ -290,6 +290,22 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+LOCAL_TIMEZONE = timezone(timedelta(hours=8))
+
+
+def _local_date(value: Optional[str] = None) -> str:
+    """返回面向页面展示的本地自然日，避免凌晨时 UTC 日期导致“今日”归零。"""
+    if not value:
+        return datetime.now(LOCAL_TIMEZONE).strftime("%Y-%m-%d")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(LOCAL_TIMEZONE).strftime("%Y-%m-%d")
+    except Exception:
+        return value[:10]
+
+
 def create_user(username: str, hashed_password: str, role: str = "student"):
     db = get_db()
     try:
@@ -402,8 +418,10 @@ def get_session_events(session_id: str, event_type: Optional[str] = None, concep
     db = get_db()
     try:
         table = db["learning_events"]
-        conditions = ["session_id = ?"]
-        params = [session_id]
+        session_ids = _session_ids_for_stats(db, session_id)
+        placeholders = ",".join("?" for _ in session_ids)
+        conditions = [f"session_id IN ({placeholders})"]
+        params = [*session_ids]
         if event_type:
             conditions.append("event_type = ?")
             params.append(event_type)
@@ -428,11 +446,42 @@ def get_session_events(session_id: str, event_type: Optional[str] = None, concep
         db.conn.close()
 
 
+def _session_ids_for_stats(db: Database, session_id: str) -> List[str]:
+    """Return all session ids that should be counted for learning statistics.
+
+    Logged-in students should see account-level statistics. Anonymous users keep
+    the old behavior and only count the current learning session.
+    """
+    try:
+        row = db["sessions"].get(session_id)
+    except Exception:
+        return [session_id]
+    if not row:
+        return [session_id]
+    user_id = row["user_id"]
+    if not user_id or user_id == "anonymous":
+        return [session_id]
+    rows = list(db["sessions"].rows_where("user_id = ?", [user_id], select="session_id"))
+    session_ids = [r["session_id"] for r in rows if r["session_id"]]
+    return session_ids or [session_id]
+
+
+def get_related_session_ids(session_id: str) -> List[str]:
+    """Return current user's session ids for account-level learning data."""
+    db = get_db()
+    try:
+        return _session_ids_for_stats(db, session_id)
+    finally:
+        db.conn.close()
+
+
 def get_session_stats(session_id: str) -> dict:
     """获取会话学习统计"""
     db = get_db()
     try:
-        events = list(db["learning_events"].rows_where("session_id = ?", [session_id]))
+        session_ids = _session_ids_for_stats(db, session_id)
+        placeholders = ",".join("?" for _ in session_ids)
+        events = list(db["learning_events"].rows_where(f"session_id IN ({placeholders})", session_ids))
 
         stats = {
             "total_events": len(events),
@@ -934,13 +983,22 @@ def get_cognitive_evidence(session_id: str, dimension: Optional[str] = None) -> 
     """获取认知风格证据"""
     db = get_db()
     try:
+        session_ids = _session_ids_for_stats(db, session_id)
+        placeholders = ",".join("?" for _ in session_ids)
         if dimension:
             rows = db["cognitive_profile_evidence"].rows_where(
-                "session_id = ? AND dimension = ?", [session_id, dimension]
+                f"session_id IN ({placeholders}) AND dimension = ?",
+                [*session_ids, dimension],
             )
         else:
-            rows = db["cognitive_profile_evidence"].rows_where("session_id = ?", [session_id])
-        return [dict(r) for r in rows]
+            rows = db["cognitive_profile_evidence"].rows_where(
+                f"session_id IN ({placeholders})",
+                session_ids,
+            )
+        results = [dict(r) for r in rows]
+        results.sort(key=lambda row: row.get("created_at") or "", reverse=True)
+        results.sort(key=lambda row: row.get("created_at") or "", reverse=True)
+        return results
     finally:
         db.conn.close()
 
@@ -1112,7 +1170,7 @@ def log_behavior_event(session_id: str, event_type: str, dimension: Optional[str
         "exercise_attempt_failed": ("cognitive_field", "dependent"),
         "self_exploration": ("cognitive_field", "independent"),
         "page_stay": ("learning_pace", None),
-        "resource_switched": ("cognitive_modality", "visual"),
+        "resource_switched": ("cognitive_modality", None),
         "profile_viewed": ("goal_orientation", "application"),
         "path_viewed": ("goal_orientation", "application"),
         "audio_played": ("cognitive_modality", "auditory"),
@@ -1122,15 +1180,19 @@ def log_behavior_event(session_id: str, event_type: str, dimension: Optional[str
     if not mapped:
         return
     dim, fixed_value = mapped
-    # page_stay 根据停留时长推断节奏；cognitive_style_preview 从 payload/description 取模式
+    # page_stay 根据停留时长推断节奏；资源/模式切换从 payload 或 description 取实际模式。
     source_value = fixed_value
     if source_value is None:
         if event_type_norm == "page_stay":
             source_value = "slow" if weight > 60 else ("fast" if weight < 15 else "normal")
-        elif event_type_norm == "cognitive_style_preview":
-            source_value = payload.get("mode") or _extract_mode_from_description(description or "")
+        elif event_type_norm in {"cognitive_style_preview", "resource_switched"}:
+            source_value = _extract_modality_from_payload(payload, description or "")
+            if event_type_norm == "cognitive_style_preview" and source_value:
+                weight = max(float(weight), 2.0)
     if dimension:
         dim = dimension
+    if dim == "cognitive_modality" and not source_value:
+        return
     add_cognitive_evidence(
         session_id=session_id,
         dimension=dim,
@@ -1141,14 +1203,69 @@ def log_behavior_event(session_id: str, event_type: str, dimension: Optional[str
     )
 
 
+def _extract_modality_from_payload(payload: dict, description: str = "") -> str:
+    """从前端行为载荷中提取学习材料类型对应的认知模态。"""
+    for key in ("mode", "style", "cognitive_modality", "source_value"):
+        value = payload.get(key)
+        if isinstance(value, str):
+            mode = _normalize_modality(value)
+            if mode:
+                return mode
+
+    section = payload.get("section") or payload.get("resource_type") or payload.get("type")
+    if isinstance(section, str):
+        section_map = {
+            "document": "text",
+            "text": "text",
+            "lecture": "text",
+            "mindmap": "visual",
+            "visual": "visual",
+            "video": "visual",
+            "audio": "auditory",
+            "auditory": "auditory",
+            "exercise": "kinesthetic",
+            "exercises": "kinesthetic",
+            "code": "kinesthetic",
+            "code_case": "kinesthetic",
+            "sandbox": "kinesthetic",
+        }
+        mapped = section_map.get(section.lower())
+        if mapped:
+            return mapped
+
+    return _extract_mode_from_description(description)
+
+
+def _normalize_modality(value: str) -> str:
+    text = value.strip().lower()
+    aliases = {
+        "text": "text",
+        "document": "text",
+        "lecture": "text",
+        "visual": "visual",
+        "mindmap": "visual",
+        "video": "visual",
+        "auditory": "auditory",
+        "audio": "auditory",
+        "kinesthetic": "kinesthetic",
+        "exercise": "kinesthetic",
+        "code": "kinesthetic",
+    }
+    if text in aliases:
+        return aliases[text]
+    return ""
+
+
 def _extract_mode_from_description(description: str) -> str:
     """从描述中提取认知模态取值"""
     if not description:
         return ""
     text = description.lower()
-    for mode in ("visual", "auditory", "kinesthetic"):
+    for mode in ("text", "visual", "auditory", "kinesthetic"):
         if mode in text:
             return mode
+    if "文字" in description:
+        return "text"
     if "视觉" in description:
         return "visual"
     if "听觉" in description:
@@ -1199,11 +1316,13 @@ def create_agent_trace(
 
 
 def get_agent_traces(session_id: str, limit: int = 20) -> List[dict]:
-    """获取某会话的 Agent 执行链路，按时间倒序"""
+    """获取当前账号的 Agent 执行链路，按时间倒序"""
     db = get_db()
     try:
+        session_ids = _session_ids_for_stats(db, session_id)
+        placeholders = ",".join("?" for _ in session_ids)
         rows = list(db["agent_traces"].rows_where(
-            "session_id = ?", [session_id],
+            f"session_id IN ({placeholders})", session_ids,
             order_by="created_at DESC",
             limit=limit,
         ))
@@ -1244,13 +1363,16 @@ def get_daily_learning_minutes(session_id: str, date: Optional[str] = None) -> i
     db = get_db()
     try:
         if date is None:
-            date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            date = _local_date()
 
+        session_ids = _session_ids_for_stats(db, session_id)
+        placeholders = ",".join("?" for _ in session_ids)
         rows = list(db["learning_events"].rows_where(
-            "session_id = ? AND substr(created_at, 1, 10) = ?",
-            [session_id, date],
+            f"session_id IN ({placeholders})",
+            session_ids,
             order_by="created_at ASC",
         ))
+        rows = [r for r in rows if _local_date(r["created_at"]) == date]
         if not rows:
             return 0
 
@@ -1285,16 +1407,17 @@ def get_streak_days(session_id: str) -> int:
     """
     db = get_db()
     try:
+        session_ids = _session_ids_for_stats(db, session_id)
+        placeholders = ",".join("?" for _ in session_ids)
         rows = list(db["learning_events"].rows_where(
-            "session_id = ?", [session_id],
-            select="substr(created_at, 1, 10) as date",
+            f"session_id IN ({placeholders})", session_ids,
             order_by="created_at DESC",
         ))
-        dates = sorted({r["date"] for r in rows}, reverse=True)
+        dates = sorted({_local_date(r["created_at"]) for r in rows}, reverse=True)
         if not dates:
             return 0
 
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today = _local_date()
         streak = 0
         current = datetime.strptime(today, "%Y-%m-%d").date()
         for date_str in dates:
@@ -1544,5 +1667,3 @@ def delete_course_material(material_id: str) -> Optional[dict]:
         return material
     finally:
         db.conn.close()
-
-

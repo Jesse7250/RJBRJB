@@ -92,15 +92,20 @@ async def get_learning_path(
         target = target_concept or session.get("target_concept") or ""
         if not target:
             return {"error": "未指定目标知识点"}
-        path = graph.get_learning_path(list(mastered), target)
 
         # 加载 BKT 掌握度
         tracker = get_bkt_tracker()
         tracker.load_from_session(session_id)
+        mastered.update(
+            concept
+            for concept, model in tracker.models.items()
+            if model.is_mastered()
+        )
+        path = graph.get_learning_path(list(mastered), target)
 
         path_nodes = []
         for name in path:
-            mastery = tracker.get_mastery_probability(name)
+            mastery = tracker.get_mastery_probability(name) if name in tracker.models else 0.0
             is_mastered = name in mastered or mastery >= 0.85
             path_nodes.append({
                 "id": name,

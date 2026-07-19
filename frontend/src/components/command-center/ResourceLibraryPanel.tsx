@@ -255,6 +255,7 @@ export function ResourceLibraryPanel({
   const [activeSection, setActiveSection] = useState<ResourceSection>('document')
   const [activeExerciseIndex, setActiveExerciseIndex] = useState(0)
   const [exerciseDrafts, setExerciseDrafts] = useState<Record<string, string>>({})
+  const [draftStorageReadyKey, setDraftStorageReadyKey] = useState('')
   const [solutionVisible, setSolutionVisible] = useState<Record<string, boolean>>({})
   const [resultText, setResultText] = useState('')
   const [actionLoading, setActionLoading] = useState(false)
@@ -285,6 +286,12 @@ export function ResourceLibraryPanel({
     () => exercises.map((exercise, index) => `${index}:${exercise.question}:${exercise.starter_code}`).join('|'),
     [exercises],
   )
+  const exerciseDraftStorageKey = useMemo(() => {
+    const username = typeof window === 'undefined'
+      ? 'anonymous'
+      : window.localStorage.getItem('eduhive.username') || 'anonymous'
+    return `edumate.${username}.exercise_drafts.${selectedConcept}.${exerciseSignature}`
+  }, [exerciseSignature, selectedConcept])
   const codeCases = activeResource?.code_cases || []
   const currentExercise = exercises[activeExerciseIndex] || exercises[0]
   const currentExerciseKey = getExerciseKey(selectedConcept, currentExercise, activeExerciseIndex)
@@ -308,17 +315,31 @@ export function ResourceLibraryPanel({
 
   useEffect(() => {
     setActiveExerciseIndex(0)
+    let savedDrafts: Record<string, string> = {}
+    if (typeof window !== 'undefined') {
+      try {
+        savedDrafts = JSON.parse(window.localStorage.getItem(exerciseDraftStorageKey) || '{}')
+      } catch {
+        savedDrafts = {}
+      }
+    }
     setExerciseDrafts((current) => {
       const next: Record<string, string> = {}
       exercises.forEach((exercise, index) => {
         const key = getExerciseKey(selectedConcept, exercise, index)
-        next[key] = current[key] ?? String(exercise.starter_code || '')
+        next[key] = savedDrafts[key] ?? current[key] ?? String(exercise.starter_code || '')
       })
       return next
     })
+    setDraftStorageReadyKey(exerciseDraftStorageKey)
     setSolutionVisible({})
     setResultText('')
-  }, [selectedConcept, exerciseSignature])
+  }, [selectedConcept, exerciseSignature, exerciseDraftStorageKey])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || draftStorageReadyKey !== exerciseDraftStorageKey) return
+    window.localStorage.setItem(exerciseDraftStorageKey, JSON.stringify(exerciseDrafts))
+  }, [draftStorageReadyKey, exerciseDraftStorageKey, exerciseDrafts])
 
   const selectSection = (section: ResourceSection) => {
     setActiveSection(section)

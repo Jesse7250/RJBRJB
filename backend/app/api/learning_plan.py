@@ -31,18 +31,23 @@ async def get_learning_plan(session_id: str):
     if not target:
         raise HTTPException(status_code=400, detail="会话未设置目标知识点")
 
-    graph = get_graph_store()
-    path = graph.get_learning_path(list(mastered), target)
-
     tracker = get_bkt_tracker()
     tracker.load_from_session(session_id)
+    mastered.update(
+        concept
+        for concept, model in tracker.models.items()
+        if model.is_mastered()
+    )
+
+    graph = get_graph_store()
+    path = graph.get_learning_path(list(mastered), target)
 
     plan = []
     total_minutes = 0
     for concept in path:
         concept_info = graph.get_concept(concept) or {}
         difficulty = concept_info.get("difficulty", 3)
-        mastery = tracker.get_mastery_probability(concept)
+        mastery = tracker.get_mastery_probability(concept) if concept in tracker.models else 0.0
         is_mastered = concept in mastered or mastery >= 0.85
 
         # 已掌握：复习时间少；未掌握：基础难度低则快，难度高则慢

@@ -38,15 +38,19 @@ class BehaviorEventType(str, Enum):
     EXERCISE_SUBMITTED = "exercise_submitted"
     CODE_EXECUTED = "code_executed"
     MINDMAP_CLICKED = "mindmap_clicked"           # 点击导图节点
+    GRAPH_NODE_SELECTED = "graph_node_selected"   # 点击知识图谱节点
     HINT_EXPANDED = "hint_expanded"               # 展开提示
     RESOURCE_SWITCHED = "resource_switched"       # 切换资源类型
+    RESOURCE_CACHE_HIT = "resource_cache_hit"     # 读取已缓存资源
     PAGE_STAY = "page_stay"                       # 页面停留
     PROFILE_VIEWED = "profile_viewed"              # 查看画像
     PATH_VIEWED = "path_viewed"                    # 查看学习路径
     DEBATE_VIEWED = "debate_viewed"                # 查看辩论报告
     EXERCISE_ATTEMPT = "exercise_attempt"          # 尝试答题
+    HEATMAP_CELL_SELECTED = "heatmap_cell_selected" # 点击掌握度热力图
     CODE_CASE_VIEWED = "code_case_viewed"          # 查看代码案例
     AUDIO_PLAYED = "audio_played"                  # 播放音频
+    COGNITIVE_STYLE_PREVIEW = "cognitive_style_preview" # 手动切换学习模式
     HELP_REQUESTED = "help_requested"              # 请求帮助
 
 
@@ -63,7 +67,7 @@ class StudentProfile(BaseModel):
     """学生画像"""
     knowledge_level: float = Field(1.0, ge=1.0, le=5.0, description="知识水平 1-5")
     cognitive_field: str = Field("dependent", description="场依存/场独立: dependent/independent")
-    cognitive_modality: str = Field("visual", description="文字/视觉/听觉/动觉: text/visual/auditory/kinesthetic")
+    cognitive_modality: str = Field("unknown", description="文字/视觉/听觉/实践/待校准: text/visual/auditory/kinesthetic/unknown")
     learning_pace: str = Field("normal", description="学习节奏: slow/normal/fast")
     goal_orientation: str = Field("application", description="目标导向: exam/application/exploration")
     error_patterns: List[str] = Field(default_factory=list, description="常见错误模式")

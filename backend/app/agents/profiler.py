@@ -45,11 +45,11 @@ class ProfilerAgent(BaseAgent):
 {
   "knowledge_level": 1.0-5.0,
   "cognitive_field": "dependent" | "independent",
-  "cognitive_modality": "visual" | "auditory" | "kinesthetic",
+  "cognitive_modality": "text" | "visual" | "auditory" | "unknown",
   "learning_pace": "slow" | "normal" | "fast",
   "goal_orientation": "exam" | "application" | "exploration",
   "error_patterns": ["语法错误", "逻辑错误"],
-  "mastered_concepts": ["已掌握知识点1", "已掌握知识点2"],
+  "mastered_concepts": [],
   "inferred_from": "简短说明推断依据"
 }
 
@@ -168,8 +168,8 @@ class ProfilerAgent(BaseAgent):
             update["cognitive_modality"] = "visual"
         elif any(w in message for w in ["听", "语音", "讲", "说"]):
             update["cognitive_modality"] = "auditory"
-        elif any(w in message for w in ["写", "跑", "试", "练"]):
-            update["cognitive_modality"] = "kinesthetic"
+        elif any(w in message for w in ["文字", "读", "阅读", "讲义"]):
+            update["cognitive_modality"] = "text"
 
         # 认知场依存/独立推断：学生是否依赖外部引导
         if any(w in message for w in ["对吗", "是不是", "确认", "步骤"]):

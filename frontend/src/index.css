@@ -9683,3 +9683,45 @@ pre code {
     justify-content: flex-start;
   }
 }
+
+/* Keep the workspace activity feed visually stable during learning-time heartbeats. */
+.workspace-dock .dock-feed,
+.workspace-dock .dock-feed p,
+.workspace-dock .dock-feed strong,
+.workspace-dock .dock-feed span {
+  animation: none;
+  transform: none;
+}
+
+.workspace-dock .dock-feed p {
+  align-items: start;
+  grid-template-columns: 78px minmax(0, 1fr);
+  min-height: 28px;
+  transition: background-color 160ms ease, border-color 160ms ease;
+}
+
+.workspace-dock .dock-feed strong {
+  display: block;
+  width: 78px;
+}
+
+.workspace-dock .dock-feed span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.workspace-dock .dock-feed {
+  contain: layout paint;
+}
+
+.workspace-dock .dock-feed p {
+  min-height: 34px;
+}
+
+.workspace-dock .dock-feed span {
+  display: -webkit-box;
+  line-height: 1.45;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}

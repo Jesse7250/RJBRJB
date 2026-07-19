@@ -2,7 +2,7 @@
 
 前端通过 /behavior 和 /events 接口上报学习行为，这些行为被记录为
 cognitive_profile_evidence。本模块根据证据的权重和类型，自动推断学生的：
-- 认知模态（visual / auditory / kinesthetic）
+- 认知模态（text / visual / auditory / kinesthetic）
 - 认知场依存/独立（dependent / independent）
 - 学习节奏（slow / normal / fast）
 - 目标导向（exam / application / exploration）
@@ -22,7 +22,7 @@ EVENT_VALUE_MAP: Dict[str, Tuple[str, Optional[str]]] = {
     # 认知模态
     "mindmap_clicked": ("cognitive_modality", "visual"),
     "graph_node_selected": ("cognitive_modality", "visual"),
-    "resource_switched": ("cognitive_modality", "visual"),
+    "resource_switched": ("cognitive_modality", None),
     "audio_played": ("cognitive_modality", "auditory"),
     "code_executed": ("cognitive_modality", "kinesthetic"),
     "code_case_viewed": ("cognitive_modality", "kinesthetic"),
@@ -40,6 +40,7 @@ EVENT_VALUE_MAP: Dict[str, Tuple[str, Optional[str]]] = {
     # 目标导向
     "profile_viewed": ("goal_orientation", "application"),
     "path_viewed": ("goal_orientation", "application"),
+    "heatmap_cell_selected": ("goal_orientation", "application"),
 }
 
 
@@ -53,14 +54,16 @@ DIMENSION_THRESHOLDS: Dict[str, Dict[str, float]] = {
 
 
 def _extract_mode_from_description(description: str) -> Optional[str]:
-    """从描述中提取认知风格模式，如 'visual' / 'auditory' / 'kinesthetic'"""
+    """从描述中提取认知风格模式，如 'text' / 'visual' / 'auditory' / 'kinesthetic'"""
     if not description:
         return None
     text = description.lower()
-    for mode in ("visual", "auditory", "kinesthetic"):
+    for mode in ("text", "visual", "auditory", "kinesthetic"):
         if mode in text:
             return mode
     # 中文兜底
+    if "文字" in description:
+        return "text"
     if "视觉" in description:
         return "visual"
     if "听觉" in description:
@@ -68,6 +71,27 @@ def _extract_mode_from_description(description: str) -> Optional[str]:
     if "动觉" in description or "动手" in description:
         return "kinesthetic"
     return None
+
+
+def _normalize_modality(value: str) -> Optional[str]:
+    text = value.strip().lower()
+    aliases = {
+        "text": "text",
+        "document": "text",
+        "lecture": "text",
+        "visual": "visual",
+        "mindmap": "visual",
+        "video": "visual",
+        "auditory": "auditory",
+        "audio": "auditory",
+        "kinesthetic": "kinesthetic",
+        "exercise": "kinesthetic",
+        "exercises": "kinesthetic",
+        "code": "kinesthetic",
+        "code_case": "kinesthetic",
+        "sandbox": "kinesthetic",
+    }
+    return aliases.get(text)
 
 
 def _pace_from_weight(weight: float) -> str:
@@ -93,10 +117,12 @@ def _extract_value_from_evidence(evidence: dict) -> Optional[str]:
     # 动态取值
     source_value = evidence.get("source_value")
     if source_value:
+        if dimension == "cognitive_modality":
+            return _normalize_modality(str(source_value)) or _extract_mode_from_description(str(source_value))
         return str(source_value)
 
     description = evidence.get("description", "")
-    if event_type == "cognitive_style_preview":
+    if event_type in {"cognitive_style_preview", "resource_switched"}:
         return _extract_mode_from_description(description)
     if event_type == "page_stay":
         weight = float(evidence.get("weight", 0.0))

@@ -76,11 +76,11 @@ def get_default_profile() -> StudentProfile:
     return StudentProfile(
         knowledge_level=1.0,
         cognitive_field="dependent",
-        cognitive_modality="visual",
+        cognitive_modality="unknown",
         learning_pace="normal",
         goal_orientation="application",
         error_patterns=[],
-        mastered_concepts=["Python简介"],
+        mastered_concepts=[],
     )
 
 
@@ -120,6 +120,73 @@ def _save_session(app, session: dict):
         session.get("dialogue_history", []),
         session.get("target_concept"),
     )
+
+
+def _sync_profile_with_real_learning_signals(app, session: dict) -> dict:
+    """Refresh profile from account-level evidence and BKT mastery records."""
+    session_id = session["session_id"]
+    profile = session.get("profile", get_default_profile().model_dump())
+    before = json.dumps(profile, ensure_ascii=False, sort_keys=True)
+
+    update_profile_from_evidence(session, session_id)
+    profile = session.get("profile", profile)
+
+    from app.services.database import get_cognitive_evidence
+    from app.services.bkt import get_bkt_tracker
+
+    if not get_cognitive_evidence(session_id, "cognitive_modality") and profile.get("cognitive_modality") == "visual":
+        profile["cognitive_modality"] = "unknown"
+
+    tracker = get_bkt_tracker()
+    tracker.load_from_session(session_id)
+    tracker_data = tracker.to_dict()
+    models = tracker_data.get("models", [])
+    mastered = [
+        item["concept"]
+        for item in models
+        if item.get("is_mastered") or float(item.get("probability", 0.0)) >= 0.85
+    ]
+    profile["mastered_concepts"] = mastered
+    if models:
+        from app.services.graph_factory import get_graph_store
+
+        total_concepts = max(len(get_graph_store().get_all_concepts()), len(models), 1)
+        observed_mastery_sum = sum(float(item.get("probability", 0.0)) for item in models)
+        course_mastery_ratio = min(1.0, observed_mastery_sum / total_concepts)
+        profile["knowledge_level"] = round(max(1.0, min(5.0, 1.0 + course_mastery_ratio * 4.0)), 1)
+    else:
+        profile["knowledge_level"] = 1.0
+
+    session["profile"] = profile
+    after = json.dumps(profile, ensure_ascii=False, sort_keys=True)
+    if before != after:
+        _save_session(app, session)
+    return profile
+
+
+def _update_bkt_from_event(session_id: str, event_type: str, concept: Optional[str], payload: dict) -> None:
+    """把通用事件接口中的真实练习/运行结果同步到 BKT。"""
+    concept = concept or payload.get("concept") or payload.get("_concept")
+    if not concept:
+        return
+    passed = None
+    if event_type == "exercise_submitted":
+        passed = payload.get("passed")
+        if passed is None:
+            passed = payload.get("is_correct")
+    elif event_type == "code_executed":
+        passed = payload.get("passed")
+        if passed is None:
+            passed = payload.get("success")
+    if passed is None:
+        return
+
+    from app.services.bkt import get_bkt_tracker
+
+    tracker = get_bkt_tracker()
+    tracker.load_from_session(session_id)
+    tracker.record_observation(concept, bool(passed))
+    tracker.persist_to_session(session_id)
 
 
 @router.post("/", response_model=SessionResponse, operation_id="create_session")
@@ -190,6 +257,7 @@ async def list_sessions(
             }
             for r in rows
         ]
+        sessions.sort(key=lambda item: item.get("updated_at") or item.get("created_at") or "", reverse=True)
         return {"sessions": sessions[:limit], "total": len(sessions)}
     finally:
         db.conn.close()
@@ -201,11 +269,13 @@ async def get_session_endpoint(session_id: str, request: Request):
     session = _load_session(request.app, session_id)
     if not session:
         return {"error": "会话不存在"}
+    profile = _sync_profile_with_real_learning_signals(request.app, session)
     return {
         "session_id": session["session_id"],
         "user_id": session["user_id"],
         "target_concept": session.get("target_concept"),
-        "profile": session["profile"],
+        "profile": profile,
+        "dialogue_history": session.get("dialogue_history", []),
         "created_at": session.get("created_at"),
         "updated_at": session.get("updated_at"),
     }
@@ -216,7 +286,7 @@ async def get_profile(session_id: str, request: Request):
     session = _load_session(request.app, session_id)
     if not session:
         return {"error": "会话不存在"}
-    return session["profile"]
+    return _sync_profile_with_real_learning_signals(request.app, session)
 
 
 @router.patch("/{session_id}/profile")
@@ -239,8 +309,8 @@ async def patch_profile(session_id: str, payload: Dict[str, object], request: Re
         if key in allowed:
             profile[key] = value
 
-    if profile.get("cognitive_modality") not in {"text", "visual", "auditory", "kinesthetic"}:
-        profile["cognitive_modality"] = "visual"
+    if profile.get("cognitive_modality") not in {"text", "visual", "auditory", "kinesthetic", "unknown"}:
+        profile["cognitive_modality"] = "unknown"
 
     session["profile"] = profile
     _save_session(request.app, session)
@@ -322,21 +392,9 @@ async def log_session_event(
         return {"success": False, "error": "会话不存在"}
 
     log_event(session_id, payload.event_type, payload.payload, concept=payload.concept)
+    _update_bkt_from_event(session_id, payload.event_type, payload.concept, payload.payload)
 
-    # 如果是练习提交或代码运行且结果正确，实时更新画像中的掌握知识点
-    profile = session.get("profile", get_default_profile().model_dump())
-    mastered = set(profile.get("mastered_concepts", []))
-    if payload.event_type == "exercise_submitted" and payload.payload.get("is_correct"):
-        concept = payload.concept or payload.payload.get("concept")
-        if concept:
-            mastered.add(concept)
-    elif payload.event_type == "code_executed" and payload.payload.get("passed"):
-        concept = payload.concept or payload.payload.get("concept")
-        if concept:
-            mastered.add(concept)
-    profile["mastered_concepts"] = list(mastered)
-    session["profile"] = profile
-    _save_session(request.app, session)
+    _sync_profile_with_real_learning_signals(request.app, session)
 
     return {"success": True, "event_type": payload.event_type}
 
@@ -537,14 +595,14 @@ async def evaluate_session(session_id: str, request: Request):
         payload = event.get("payload", {})
         if event_type == "exercise_submitted":
             exercise_results.append({
-                "concept": payload.get("concept", ""),
-                "correct": payload.get("is_correct", False),
+                "concept": event.get("concept") or payload.get("concept", ""),
+                "correct": bool(payload.get("is_correct") if payload.get("is_correct") is not None else payload.get("passed", False)),
                 "answer": payload.get("answer", ""),
             })
         elif event_type == "code_executed":
             code_runs.append({
-                "concept": payload.get("concept", ""),
-                "passed": payload.get("passed", False),
+                "concept": event.get("concept") or payload.get("concept", ""),
+                "passed": bool(payload.get("passed") if payload.get("passed") is not None else payload.get("success", False)),
                 "stdout": payload.get("stdout", ""),
             })
         elif event_type == "chat":
@@ -579,27 +637,7 @@ async def evaluate_session(session_id: str, request: Request):
     eval_result = reviewer.evaluate(eval_msg)
     evaluation = eval_result.payload
 
-    # 根据评估结果自动调整画像：知识水平与掌握知识点
-    mastery_delta = evaluation.get("mastery_delta", {})
-    deltas = [v for v in mastery_delta.values() if isinstance(v, (int, float))]
-    if deltas:
-        avg_delta = sum(deltas) / len(deltas)
-        profile["knowledge_level"] = min(5.0, profile.get("knowledge_level", 1.0) + avg_delta)
-
-    # 如果该知识点练习正确率达标或掌握度增量足够，则加入已掌握列表
-    mastered = set(profile.get("mastered_concepts", []))
-    if deltas and concept not in mastered:
-        accuracy = 0.0
-        concept_exercises = [r for r in exercise_results if r.get("concept") == concept]
-        if concept_exercises:
-            correct = sum(1 for r in concept_exercises if r.get("correct"))
-            accuracy = correct / len(concept_exercises)
-        if accuracy >= 0.5 or (deltas and max(deltas) >= 0.15):
-            mastered.add(concept)
-            profile["mastered_concepts"] = list(mastered)
-
-    session["profile"] = profile
-    _save_session(request.app, session)
+    profile = _sync_profile_with_real_learning_signals(request.app, session)
     log_event(session_id, "evaluation_result", {
         "concept": concept,
         "summary": evaluation.get("summary", ""),

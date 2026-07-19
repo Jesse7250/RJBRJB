@@ -248,6 +248,15 @@ const COURSE_CATALOG: CourseCard[] = [
 
 const FALLBACK_TARGET_CONCEPT = '变量与赋值'
 
+function currentStorageUser() {
+  if (typeof window === 'undefined') return 'anonymous'
+  return window.localStorage.getItem('eduhive.username') || 'anonymous'
+}
+
+function userStorageKey(key: string, username = currentStorageUser()) {
+  return `edumate.${username}.${key}`
+}
+
 function getInitialTargetConcept() {
   if (typeof window === 'undefined') return FALLBACK_TARGET_CONCEPT
   // hash 路由下参数位于 # 之后，需从 hash 中解析
@@ -258,9 +267,29 @@ function getInitialTargetConcept() {
   return (
     params.get('target_concept') ||
     params.get('target') ||
+    window.localStorage.getItem(userStorageKey('target_concept')) ||
     window.localStorage.getItem('eduhive.target_concept') ||
     FALLBACK_TARGET_CONCEPT
   ).trim()
+}
+
+async function getOrCreateLearningSession(targetConcept: string, shouldRestore: boolean) {
+  if (shouldRestore) {
+    try {
+      const listRes = await sessionApi.list()
+      const sessions = [...(listRes.data.sessions || [])].sort((a, b) =>
+        String(b.updated_at || b.created_at || '').localeCompare(String(a.updated_at || a.created_at || ''))
+      )
+      const restored = sessions.find((item) => item.target_concept === targetConcept) || sessions[0]
+      if (restored?.session_id) {
+        const sessionRes = await sessionApi.get(restored.session_id)
+        if (sessionRes.data?.session_id && sessionRes.data?.profile) return sessionRes.data
+      }
+    } catch {
+      // If restoring fails, fall back to creating a fresh learning session.
+    }
+  }
+  return (await sessionApi.create(targetConcept)).data
 }
 
 const SAMPLE_CODE = `# 读取文件示例
@@ -399,7 +428,7 @@ function buildPathNodes(graph: GraphData | null, heatmap: HeatmapItem[]): PathNo
     const y = Math.min(90, Math.max(10, rowSlots[rowInColumn] + (level % 2 === 0 ? -2 : 2)))
     const column = (levelStartColumn.get(rawLevel) ?? level) + localColumn
     const x = 4 + column * (92 / maxColumn)
-    const value = mastery.get(node.name) ?? Math.max(30, 94 - (node.difficulty ?? 3) * 8)
+    const value = mastery.get(node.name) ?? 0
     return {
       id: node.id || node.name,
       title: node.name,
@@ -445,7 +474,7 @@ function buildBackendPathNodes(layout: GraphLayoutData | null, personalPath: Per
     const pathNode = pathByName.get(node.name) || pathByName.get(node.id)
     const mastery = pathNode?.mastery_probability !== undefined
       ? Math.round(pathNode.mastery_probability * 100)
-      : masteryFromHeatmap.get(node.name) ?? Math.max(30, 94 - (node.difficulty ?? 3) * 8)
+      : masteryFromHeatmap.get(node.name) ?? 0
     return {
       id: node.id || node.name,
       title: node.name,
@@ -574,6 +603,36 @@ function createChatMessage(role: ChatMessage['role'], content: string, agentName
   }
 }
 
+function isLearningWelcomeMessage(content: string) {
+  return /^(你已经掌握了前置知识，)?接下来我们学习「[^」]+」。/.test(content.trim())
+}
+
+function createLearningWelcomeMessage(concept: string) {
+  return createChatMessage(
+    'assistant',
+    `接下来我们学习「${concept}」。你可以直接提问，我会结合学习画像、知识图谱和练习记录进行辅导。`,
+    'Socrates',
+  )
+}
+
+function restoreChatMessages(sessionData: SessionResponse, fallbackConcept: string): ChatMessage[] {
+  const history = Array.isArray(sessionData.dialogue_history) ? sessionData.dialogue_history : []
+  const restored = history
+    .filter((item) => item && (item.role === 'user' || item.role === 'assistant' || item.role === 'system') && String(item.content || '').trim())
+    .map((item, index) => ({
+      id: `history-${index}-${item.role}`,
+      role: item.role,
+      content: String(item.content || ''),
+      agentName: item.role === 'assistant' ? 'AI 助教' : undefined,
+      timestamp: '',
+    } satisfies ChatMessage))
+  const withoutAutoWelcome = restored.filter((message) => (
+    !(message.role === 'assistant' && isLearningWelcomeMessage(message.content))
+  ))
+  if (withoutAutoWelcome.length) return withoutAutoWelcome
+  return [createLearningWelcomeMessage(fallbackConcept)]
+}
+
 function tryParseJsonString(value: unknown): unknown {
   if (typeof value !== 'string') return value
   try {
@@ -620,7 +679,7 @@ function extractAgentText(response?: AgentResponse | null, preferredModality?: '
       ? `已掌握：${profile.mastered_concepts.join('、')}`
       : ''
     const modalityValue = preferredModality || profile.cognitive_modality
-    const modalityLabel: Record<string, string> = { text: '文字型', visual: '视觉型', auditory: '听觉型', kinesthetic: '动觉型' }
+    const modalityLabel: Record<string, string> = { text: '文字型', visual: '视觉型', auditory: '听觉型', kinesthetic: '实践型' }
     const modality = modalityLabel[modalityValue] || ''
     const profileLine = [
       modality && `认知风格：${modality}`,
@@ -746,13 +805,14 @@ function App() {
   const styleModeRef = useRef<'text' | 'visual' | 'auditory' | 'kinesthetic'>('text')
   const [chatInput, setChatInput] = useState(() => `我想学习 ${targetConcept}`)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
-    createChatMessage('assistant', `你已经掌握了前置知识，接下来我们学习「${targetConcept}」。你可以直接提问，我会结合学习画像、知识图谱和练习记录进行辅导。`, 'Socrates'),
+    createLearningWelcomeMessage(targetConcept),
   ])
   const [chatLoading, setChatLoading] = useState(false)
   const [code, setCode] = useState(SAMPLE_CODE)
   const [codeOutput, setCodeOutput] = useState(SAMPLE_OUTPUT)
   const [codeVariables, setCodeVariables] = useState<CodeVariable[]>(SAMPLE_VARIABLES)
   const [codeLoading, setCodeLoading] = useState(false)
+  const [codeStorageReadyKey, setCodeStorageReadyKey] = useState('')
   const [resourceStatus, setResourceStatus] = useState('资源生成接口待命')
   const [resourceLoading, setResourceLoading] = useState(false)
   const [publishedCourseCards, setPublishedCourseCards] = useState<CourseCard[]>([])
@@ -772,16 +832,29 @@ function App() {
     styleModeRef.current = styleMode
   }, [styleMode])
 
-  const mergeSessionProfile = (profilePatch: Partial<SessionResponse['profile']>) => {
+  useEffect(() => {
+    setChatMessages((current) => {
+      if (
+        current.length === 1 &&
+        current[0].role === 'assistant' &&
+        isLearningWelcomeMessage(current[0].content) &&
+        !current[0].content.includes(`「${selectedConcept}」`)
+      ) {
+        return [createLearningWelcomeMessage(selectedConcept)]
+      }
+      return current
+    })
+  }, [selectedConcept])
+
+  const mergeSessionProfile = useCallback((profilePatch: Partial<SessionResponse['profile']>) => {
     setSession((current) => current ? {
       ...current,
       profile: {
         ...current.profile,
         ...profilePatch,
-        cognitive_modality: styleModeRef.current,
       },
     } : current)
-  }
+  }, [])
 
   const applyResourceCache = useCallback((concept: string, entry: ResourcePanelCacheEntry, note = 'cache') => {
     setResourceConcept(concept)
@@ -812,6 +885,42 @@ function App() {
     const savedUser = window.localStorage.getItem('eduhive.username')
     return savedUser ? `已登录：${savedUser}` : '请登录账号。'
   })
+
+  const sandboxStorageKey = useMemo(
+    () => userStorageKey(`sandbox_code.${selectedCourseId}`, authUser || 'anonymous'),
+    [authUser, selectedCourseId],
+  )
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const savedState = window.localStorage.getItem(sandboxStorageKey)
+    if (savedState) {
+      try {
+        const parsed = JSON.parse(savedState)
+        setCode(typeof parsed.code === 'string' ? parsed.code : SAMPLE_CODE)
+        setCodeOutput(typeof parsed.output === 'string' ? parsed.output : SAMPLE_OUTPUT)
+        setCodeVariables(Array.isArray(parsed.variables) ? parsed.variables : SAMPLE_VARIABLES)
+      } catch {
+        setCode(savedState)
+        setCodeOutput(SAMPLE_OUTPUT)
+        setCodeVariables(SAMPLE_VARIABLES)
+      }
+    } else {
+      setCode(SAMPLE_CODE)
+      setCodeOutput(SAMPLE_OUTPUT)
+      setCodeVariables(SAMPLE_VARIABLES)
+    }
+    setCodeStorageReadyKey(sandboxStorageKey)
+  }, [sandboxStorageKey])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || codeStorageReadyKey !== sandboxStorageKey) return
+    window.localStorage.setItem(sandboxStorageKey, JSON.stringify({
+      code,
+      output: codeOutput,
+      variables: codeVariables,
+    }))
+  }, [code, codeOutput, codeStorageReadyKey, codeVariables, sandboxStorageKey])
 
   useEffect(() => {
     let cancelled = false
@@ -982,15 +1091,15 @@ function App() {
 
     async function bootstrap() {
       try {
-        const [sessionRes, graphRes, layoutRes, healthRes] = await Promise.all([
-          sessionApi.create(targetConcept),
+        const [sessionData, graphRes, layoutRes, healthRes] = await Promise.all([
+          getOrCreateLearningSession(targetConcept, Boolean(authUser && authRole === 'student')),
           graphApi.getGraph(),
           graphApi.getLayout().catch(() => null),
           fetch('/health/detail').then((res) => res.json()).catch(() => null),
         ])
 
         if (cancelled) return
-        const nextTarget = sessionRes.data.target_concept || targetConcept
+        const nextTarget = sessionData.target_concept || targetConcept
         const validTargets = new Set(graphRes.data.nodes.map((n) => n.name))
         const targetNode = graphRes.data.nodes.find((n) => n.name === nextTarget)
         const isBeginnerTarget = targetNode && ((targetNode.module && targetNode.module.includes('基础')) || targetNode.difficulty <= 2)
@@ -1000,22 +1109,24 @@ function App() {
           return sorted[0]?.name || nextTarget
         })()
         const finalTarget = validTargets.has(nextTarget) && isBeginnerTarget ? nextTarget : fallbackTarget
+        window.localStorage.setItem(userStorageKey('target_concept', (sessionData as any).user_id || authUser || 'anonymous'), finalTarget)
         window.localStorage.setItem('eduhive.target_concept', finalTarget)
         setTargetConcept(finalTarget)
         setSelectedConcept(finalTarget)
         setSelectedNodeId(finalTarget)
         setResourceConcept(finalTarget)
-        if (sessionRes.data.suggested_path?.length) setPlannedPath(sessionRes.data.suggested_path)
-        setSession(sessionRes.data)
-        if (['text', 'visual', 'auditory', 'kinesthetic'].includes(sessionRes.data.profile.cognitive_modality)) {
-          const backendStyle = sessionRes.data.profile.cognitive_modality as 'text' | 'visual' | 'auditory' | 'kinesthetic'
+        if (sessionData.suggested_path?.length) setPlannedPath(sessionData.suggested_path)
+        setSession(sessionData)
+        if (['text', 'visual', 'auditory', 'kinesthetic'].includes(sessionData.profile.cognitive_modality)) {
+          const backendStyle = sessionData.profile.cognitive_modality as 'text' | 'visual' | 'auditory' | 'kinesthetic'
           styleModeRef.current = backendStyle
           setStyleMode(backendStyle)
         }
         setGraph(graphRes.data)
+        setChatMessages(restoreChatMessages(sessionData, finalTarget))
         if (layoutRes?.data) setGraphLayout(layoutRes.data)
         setHealth(healthRes)
-        graphApi.getPersonalPath(sessionRes.data.session_id, finalTarget)
+        graphApi.getPersonalPath(sessionData.session_id, finalTarget)
           .then((pathRes) => {
             if (cancelled || pathRes.data.error) return
             setPersonalPath(pathRes.data)
@@ -1023,9 +1134,13 @@ function App() {
             if (backendPath?.length) setPlannedPath(backendPath)
           })
           .catch(() => undefined)
-        await behaviorApi.log(sessionRes.data.session_id, 'command_center_opened', finalTarget, {
-          surface: 'command-center',
-        }).catch(() => undefined)
+        sessionApi.getLearningPlan(sessionData.session_id)
+          .then((planRes) => {
+            if (!cancelled) setLearningPlan(planRes.data)
+          })
+          .catch(() => {
+            if (!cancelled) setLearningPlan(null)
+          })
       } catch {
         if (!cancelled) {
           setResourceStatus('后端连接中断，已切换为演示数据')
@@ -1037,51 +1152,87 @@ function App() {
     return () => {
       cancelled = true
     }
-  }, [targetConcept])
+  }, [targetConcept, authUser, authRole])
+
+  const loadLearningSignals = useCallback(async (sessionId: string) => {
+    const [statsRes, heatmapRes, profileRes, eventsRes] = await Promise.allSettled([
+      sessionApi.getStats(sessionId),
+      evaluationApi.getHeatmap(sessionId),
+      sessionApi.getProfile(sessionId),
+      sessionApi.getEvents(sessionId, 50),
+    ])
+
+    if (statsRes.status === 'fulfilled') setStats(statsRes.value.data)
+    if (heatmapRes.status === 'fulfilled') setHeatmap(heatmapRes.value.data.data || [])
+    if (profileRes.status === 'fulfilled' && !profileRes.value.data?.error) {
+      setSession((current) => current && current.session_id === sessionId
+        ? {
+            ...current,
+            profile: {
+              ...current.profile,
+              ...profileRes.value.data,
+            },
+          }
+        : current)
+    }
+    if (eventsRes.status === 'fulfilled') {
+      const visibleEvents = [...(eventsRes.value.data.events || [])]
+        .filter((event) => event.event_type !== 'page_stay')
+        .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
+        .slice(0, 8)
+      setLearningEvents((current) => {
+        const currentKey = current.map((event) => `${event.id}:${event.event_type}:${event.concept || ''}`).join('|')
+        const nextKey = visibleEvents.map((event) => `${event.id}:${event.event_type}:${event.concept || ''}`).join('|')
+        return currentKey === nextKey ? current : visibleEvents
+      })
+    }
+  }, [])
+
+  const refreshStudyCounters = useCallback(async (sessionId: string) => {
+    try {
+      const statsRes = await sessionApi.getStats(sessionId)
+      setStats(statsRes.data)
+    } catch {
+      // ignore
+    }
+  }, [])
 
   useEffect(() => {
-    if (!session) return
+    if (!session?.session_id) return
+    loadLearningSignals(session.session_id)
+  }, [session?.session_id, loadLearningSignals])
+
+  useEffect(() => {
+    if (!session?.session_id || courseMode !== 'python') return
     const sessionId = session.session_id
+    let cancelled = false
 
-    async function loadLearningSignals() {
-      const [statsRes, heatmapRes, profileRes, planRes, eventsRes] = await Promise.allSettled([
-        sessionApi.getStats(sessionId),
-        evaluationApi.getHeatmap(sessionId),
-        sessionApi.getProfile(sessionId),
-        sessionApi.getLearningPlan(sessionId),
-        sessionApi.getEvents(sessionId, 8),
-      ])
-
-      if (statsRes.status === 'fulfilled') setStats(statsRes.value.data)
-      if (heatmapRes.status === 'fulfilled') setHeatmap(heatmapRes.value.data.data || [])
-      if (profileRes.status === 'fulfilled' && !profileRes.value.data?.error) {
-        setSession((current) => current && current.session_id === sessionId
-          ? {
-              ...current,
-              profile: {
-                ...current.profile,
-                ...profileRes.value.data,
-                cognitive_modality: styleModeRef.current,
-              },
-            }
-          : current)
-      }
-      if (planRes.status === 'fulfilled') {
-        setLearningPlan(planRes.value.data)
-      } else {
-        setLearningPlan(null)
-      }
-      if (eventsRes.status === 'fulfilled') {
-        setLearningEvents([...(eventsRes.value.data.events || [])].sort((a, b) =>
-          String(b.created_at || '').localeCompare(String(a.created_at || ''))
-        ))
+    const syncStudyTime = async () => {
+      if (cancelled || document.hidden) return
+      try {
+        await behaviorApi.log(sessionId, 'page_stay', selectedConcept || targetConcept, {
+          surface: 'command-center',
+          weight: 30,
+          description: '课程工作台停留',
+        })
+        await refreshStudyCounters(sessionId)
+      } catch {
+        // ignore
       }
     }
 
-    loadLearningSignals()
-    const timer = window.setInterval(loadLearningSignals, 30000)
-    return () => window.clearInterval(timer)
-  }, [session])
+    syncStudyTime()
+    const timer = window.setInterval(syncStudyTime, 60000)
+    const handleVisibility = () => {
+      if (!document.hidden) syncStudyTime().catch(() => undefined)
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
+  }, [session?.session_id, courseMode, selectedConcept, targetConcept, refreshStudyCounters])
 
   useEffect(() => {
     if (!session) return
@@ -1089,9 +1240,22 @@ function App() {
     async function loadAgentTraces() {
       try {
         const res = await sessionApi.getAgentTrace(sessionId)
-        setAgentTraces(res.data.traces || [])
+        const nextTraces = res.data.traces || []
+        setAgentTraces((current) => {
+          const toKey = (items: any[]) => items
+            .map((trace) => [
+              trace.id ?? trace.trace_id ?? '',
+              trace.agent_name ?? '',
+              trace.stage ?? '',
+              trace.status ?? '',
+              trace.duration_ms ?? '',
+              trace.created_at ?? '',
+            ].join(':'))
+            .join('|')
+          return toKey(current) === toKey(nextTraces) ? current : nextTraces
+        })
       } catch {
-        setAgentTraces([])
+        setAgentTraces((current) => current.length ? [] : current)
       }
     }
     loadAgentTraces()
@@ -1187,12 +1351,17 @@ function App() {
       if (!nextPath.length) throw new Error('empty path')
       setPlannedPath(nextPath)
       setWorkspaceNote(`后端知识图谱已生成路径：${nextPath.join(' → ')}`)
+      if (session) {
+        sessionApi.getLearningPlan(session.session_id)
+          .then((planRes) => setLearningPlan(planRes.data))
+          .catch(() => undefined)
+      }
     } catch {
       setWorkspaceNote('路径接口暂不可用，已保留当前可视化路径。')
     }
   }, [navigateTo, session, pathNodes, selectedConcept])
 
-  const analyzeMastery = async () => {
+  const analyzeMastery = useCallback(async () => {
     if (!session) {
       setWorkspaceNote('会话尚未初始化完成，请稍后再分析掌握度。')
       return
@@ -1221,12 +1390,29 @@ function App() {
     } finally {
       setMasteryAnalyzing(false)
     }
-  }
+  }, [navigateTo, session])
+
+  const refreshMasteryData = useCallback(async (concept?: string) => {
+    if (!session?.session_id) return
+    await loadLearningSignals(session.session_id)
+    const target = concept || selectedConcept || targetConcept
+    graphApi.getPersonalPath(session.session_id, target)
+      .then((pathRes) => {
+        if (pathRes.data.error) return
+        setPersonalPath(pathRes.data)
+        const backendPath = pathRes.data.path_nodes?.map((node) => node.name || node.id).filter(Boolean)
+        if (backendPath?.length) setPlannedPath(backendPath)
+      })
+      .catch(() => undefined)
+    sessionApi.getLearningPlan(session.session_id)
+      .then((planRes) => setLearningPlan(planRes.data))
+      .catch(() => undefined)
+  }, [loadLearningSignals, selectedConcept, session?.session_id, targetConcept])
 
   const runCode = async () => {
     setCodeLoading(true)
     try {
-      const res = await codeApi.execute(code)
+      const res = await codeApi.execute(code, session?.session_id, selectedConcept)
       const stdout = res.data.stdout || ''
       const stderr = res.data.stderr || ''
       const violations = res.data.violations?.length ? `安全检查未通过:\n${res.data.violations.join('\n')}` : ''
@@ -1244,6 +1430,7 @@ function App() {
           success: res.data.success,
           variables: nextVariables.map((item) => item.name),
         }).catch(() => undefined)
+        await refreshMasteryData(selectedConcept)
       }
     } catch {
       setCodeOutput('代码执行接口暂不可用，请检查后端服务。')
@@ -1292,7 +1479,6 @@ function App() {
         profile: {
           ...current.profile,
           ...profile,
-          cognitive_modality: styleModeRef.current,
         },
       } : current)
     }
@@ -1528,7 +1714,8 @@ function App() {
   }
 
   const runResourceCode = async (codeText: string) => {
-    const res = await codeApi.execute(codeText)
+    const res = await codeApi.execute(codeText, session?.session_id, resourceConcept)
+    if (session) refreshMasteryData(resourceConcept).catch(() => undefined)
     return res.data
   }
 
@@ -1569,6 +1756,7 @@ function App() {
       behaviorApi.log(session.session_id, 'exercise_attempt', resourceConcept, {
         question: exercise.question,
       }).catch(() => undefined)
+      await refreshMasteryData(resourceConcept)
     }
     return res.data
   }
@@ -1632,7 +1820,7 @@ function App() {
     }
   }
 
-  const changeStyleMode = async (mode: 'text' | 'visual' | 'auditory' | 'kinesthetic') => {
+  const changeStyleMode = useCallback(async (mode: 'text' | 'visual' | 'auditory' | 'kinesthetic') => {
     styleModeRef.current = mode
     setStyleMode(mode)
     setSession((current) => current ? {
@@ -1642,7 +1830,7 @@ function App() {
         cognitive_modality: mode,
       },
     } : current)
-    const modeLabel = mode === 'text' ? '文字型' : mode === 'visual' ? '视觉型' : mode === 'auditory' ? '听觉型' : '动觉型'
+    const modeLabel = mode === 'text' ? '文字型' : mode === 'visual' ? '视觉型' : mode === 'auditory' ? '听觉型' : '实践型'
     setWorkspaceNote(`认知风格画像已切换为：${modeLabel}。`)
     if (session) {
       sessionApi.updateProfile(session.session_id, { cognitive_modality: mode })
@@ -1659,7 +1847,7 @@ function App() {
         description: `用户手动切换认知风格为 ${mode}`,
       }).catch(() => undefined)
     }
-  }
+  }, [mergeSessionProfile, selectedConcept, session])
 
   const portalCourses = useMemo(() => [
     COURSE_CATALOG[0],

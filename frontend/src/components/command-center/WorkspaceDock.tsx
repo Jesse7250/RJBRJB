@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { memo, useEffect, useState } from 'react'
 import { AudioLines, BarChart3, BookOpenText, ChevronDown, ChevronUp, MonitorPlay, Route } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { LearningEvent, LearningPlanResponse, ResourceVersion, ThinkingStep } from '@/services/api'
@@ -21,7 +21,7 @@ const STYLE_COPY: Record<StyleMode, string> = {
   text: '文字型：以讲义文本为主，适合连续阅读和复盘。',
   visual: '视觉型：播放教学视频并保留讲义，适合先看示范再阅读。',
   auditory: '听觉型：使用数字人朗读讲解稿，适合边听边记。',
-  kinesthetic: '动觉型：强调代码练习、即时运行和操作反馈。',
+  kinesthetic: '实践型：强调代码练习、即时运行和操作反馈。',
 }
 
 const TITLE_BY_NAV: Record<NavKey, string> = {
@@ -33,7 +33,7 @@ const TITLE_BY_NAV: Record<NavKey, string> = {
   progress: '掌握进度工作区',
 }
 
-export function WorkspaceDock({
+export const WorkspaceDock = memo(function WorkspaceDock({
   activeNav,
   selectedConcept,
   styleMode,
@@ -169,4 +169,4 @@ export function WorkspaceDock({
 
     </div>
   )
-}
+})

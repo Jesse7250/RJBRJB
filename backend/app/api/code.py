@@ -34,6 +34,7 @@ from app.services.database import (
     create_code_submission,
     log_event,
 )
+from app.services.bkt import get_bkt_tracker
 from app.services.knowledge_furnace import trigger_resource_review
 
 router = APIRouter()
@@ -55,6 +56,8 @@ def _missing_expected_output_result() -> dict:
 
 class ExecuteRequest(BaseModel):
     code: str
+    session_id: str | None = None
+    concept: str | None = None
 
 
 class JudgeRequest(BaseModel):
@@ -62,6 +65,16 @@ class JudgeRequest(BaseModel):
     expected_output: str
     session_id: str | None = None
     concept: str | None = None
+
+
+def _update_mastery_from_observation(session_id: str, concept: str, passed: bool | None) -> None:
+    """Persist a BKT update for the session after a real learning observation."""
+    if not session_id or session_id == "anonymous" or not concept or passed is None:
+        return
+    tracker = get_bkt_tracker()
+    tracker.load_from_session(session_id)
+    tracker.record_observation(concept, bool(passed))
+    tracker.persist_to_session(session_id)
 
 
 class SeedFailedSubmissionsRequest(BaseModel):
@@ -96,10 +109,14 @@ async def execute_code(payload: ExecuteRequest, request: Request):
     error_type = ""
     if not result.get("success"):
         error_type = result.get("error_type", "runtime")
+    session_id = payload.session_id or "anonymous"
+    concept = payload.concept or ""
+    _update_mastery_from_observation(session_id, concept, result.get("success"))
+
     create_code_submission(
         submission_id=str(uuid.uuid4()),
-        session_id="anonymous",
-        concept="",
+        session_id=session_id,
+        concept=concept,
         code=payload.code,
         output=result.get("stdout", "") + "\n" + result.get("stderr", ""),
         passed=result.get("success", False),
@@ -108,11 +125,12 @@ async def execute_code(payload: ExecuteRequest, request: Request):
     )
 
     # 记录代码执行事件，供后续学习分析使用
-    log_event("anonymous", "code_executed", {
+    log_event(session_id, "code_executed", {
         "code": payload.code,
         "success": result.get("success"),
+        "passed": result.get("success"),
         "violations": result.get("violations"),
-    })
+    }, concept=concept)
 
     return result
 
@@ -129,6 +147,7 @@ async def judge_code(
     session_id = payload.session_id or "anonymous"
     concept = payload.concept or ""
     error_type = "passed" if result.get("passed") else result.get("error_type", "logic")
+    _update_mastery_from_observation(session_id, concept, result.get("passed"))
 
     # 持久化判题提交记录
     create_code_submission(
@@ -150,7 +169,7 @@ async def judge_code(
         "expected_output": payload.expected_output,
         "passed": result.get("passed"),
         "actual_output": result.get("actual_output"),
-    })
+    }, concept=concept)
 
     # 错误率过高时后台触发知识熔炉资源重审
     triggered = False
@@ -240,6 +259,7 @@ async def judge_exercise(
     session_id = payload.session_id or "anonymous"
     concept = payload.concept or ""
     error_type = "passed" if result.get("passed") else result.get("error_type", "logic")
+    _update_mastery_from_observation(session_id, concept, result.get("passed"))
 
     # 持久化代码提交记录
     create_code_submission(
@@ -261,7 +281,7 @@ async def judge_exercise(
         "expected_output": payload.expected_output,
         "passed": result.get("passed"),
         "actual_output": result.get("actual_output"),
-    })
+    }, concept=concept)
 
     # 错误率过高时后台触发知识熔炉资源重审
     triggered = False

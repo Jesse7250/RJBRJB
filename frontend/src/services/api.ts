@@ -106,6 +106,11 @@ export interface SessionResponse {
   }
   target_concept: string | null
   suggested_path: string[]
+  dialogue_history?: Array<{
+    role: 'user' | 'assistant' | 'system'
+    content: string
+    type?: string
+  }>
 }
 
 export interface EvidenceItem {
@@ -182,6 +187,12 @@ export interface PersonalPathResponse {
 export const sessionApi = {
   create: (target_concept?: string) =>
     api.post<SessionResponse>('/sessions/', { target_concept }),
+
+  list: () =>
+    api.get<{ sessions: Array<{ session_id: string; target_concept?: string | null; created_at?: string; updated_at?: string }>; total: number }>('/sessions/'),
+
+  get: (sessionId: string) =>
+    api.get<SessionResponse & { user_id?: string; created_at?: string; updated_at?: string }>(`/sessions/${sessionId}`),
 
   getProfile: (sessionId: string) =>
     api.get(`/sessions/${sessionId}/profile`),
@@ -391,7 +402,8 @@ export const resourceApi = {
 
 // 代码判题相关接口
 export const codeApi = {
-  execute: (code: string) => api.post<CodeExecutionResult>('/code/execute', { code }),
+  execute: (code: string, sessionId?: string, concept?: string) =>
+    api.post<CodeExecutionResult>('/code/execute', { code, session_id: sessionId, concept }),
   judge: (data: JudgeRequest) => api.post('/code/judge', data),
   judgeExercise: (data: JudgeRequest) => api.post('/code/judge-exercise', data),
 }
