@@ -92,7 +92,7 @@ def make_fig1():
         linewidth=1.5,
     )
     ax_a.add_patch(center)
-    ax_a.text(5.0, 5.25, "EduHive", ha="center", va="center",
+    ax_a.text(5.0, 5.25, "EduMate", ha="center", va="center",
               fontsize=11, fontweight="bold", color="white")
     ax_a.text(5.0, 4.75, "33 知识点 · 5 Agent · 4 审核视角", ha="center", va="center",
               fontsize=7, color="white")
@@ -152,7 +152,7 @@ def make_fig1():
         ax_a.add_patch(arrow)
 
     # 顶部标题
-    ax_a.text(0.5, 1.02, "EduHive 通过统一平台服务四类教学场景",
+    ax_a.text(0.5, 1.02, "EduMate 通过统一平台服务四类教学场景",
               transform=ax_a.transAxes, ha="center", va="bottom",
               fontsize=9, fontweight="bold", color=PALETTE["neutral_dark"])
     add_panel_label(ax_a, "a", x=-0.02, y=1.02)

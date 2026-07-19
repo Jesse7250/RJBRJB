@@ -14,7 +14,7 @@ DOC = Path("D:/Gitproject/RJBRJB/docs/作品设计文档.md")
 # New caption blocks keyed by OLD figure number.
 # None means delete.  New figures are inserted in document order.
 NEW_BLOCKS = {
-    1: """> **图 1：智学蜂巢课程门户首页**
+    1: """> **图 1：智慧伴学课程门户首页**
 > 建议放置位置：docs/images/fig1-portal-home.png
 > 内容：课程门户首页真实截图，展示课程中心、推荐课程卡片、搜索栏与登录入口，体现系统面向高等教育 Python 程序设计课程的入口设计。
 > 来源截图：docs/test-screenshots/student_flow_01_portal_landing.png
@@ -90,7 +90,7 @@ EXTRA_BLOCK = """> **图 13：代码沙箱运行与自动判题**
 > 来源截图：docs/test-screenshots/student_flow_15_code_run_output.png
 """
 
-APPENDIX_ROWS = """| 图 1 | fig1-portal-home.png | 智学蜂巢课程门户首页 | 1.1 |
+APPENDIX_ROWS = """| 图 1 | fig1-portal-home.png | 智慧伴学课程门户首页 | 1.1 |
 | 图 2 | fig2-overall-loop.png | 系统总体数据闭环 | 2.1 |
 | 图 3 | fig3-system-architecture.png | 系统总体架构图 | 2.2 |
 | 图 4 | fig4-agent-architecture.png | 多智能体协同架构图 | 2.3 |

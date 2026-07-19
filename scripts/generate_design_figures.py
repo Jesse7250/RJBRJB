@@ -88,10 +88,10 @@ def curved_arrow(ax, x1, y1, x2, y2, color=PALETTE["neutral_dark"], lw=1.5, rad=
 # ---------- Figure 1: Application scenarios ----------
 def fig1():
     fig, ax = new_fig(8, 6)
-    ax.set_title("图 1：智学蜂巢应用场景示意图", fontsize=14, fontweight="bold", pad=20)
+    ax.set_title("图 1：智慧伴学应用场景示意图", fontsize=14, fontweight="bold", pad=20)
     center = (0.5, 0.5)
     # central hexagon-ish using round box
-    box(ax, center[0], center[1], 0.28, 0.22, "智学蜂巢\nEduHive",
+    box(ax, center[0], center[1], 0.28, 0.22, "智慧伴学\nEduMate",
         color=PALETTE["blue_main"], radius=0.08, fontsize=14)
     scenarios = [
         (0.18, 0.78, "课后自主\n学习"),

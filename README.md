@@ -1,217 +1,169 @@
-# 智学蜂巢 EduHive —— 基于多智能体协同的 Python 个性化学习系统
+# 智慧伴学 EduMate
 
-> 第十五届中国软件杯大赛 A组参赛作品  
-> 赛题：基于大模型的个性化资源生成与学习多智能体系统开发  
-> 出题企业：科大讯飞股份有限公司
-
----
+> 第十五届中国软件杯 A 组参赛作品
+> 赛题方向：基于大模型的个性化资源生成与学习多智能体系统开发
+> 项目定位：面向 Python 程序设计课程的多智能体个性化学习平台
 
 ## 项目简介
 
-智学蜂巢（EduHive）是一个面向高等教育 **Python 程序设计课程** 的多智能体协同个性化学习系统。系统融合 **DeepSeek / 讯飞星火大模型**、**Neo4j / 内存知识图谱** 与自定义多智能体编排，通过对话式画像构建、神经符号约束生成、多 Agent 辩论议会审核、学习行为评估闭环、认知风格自适应渲染，实现“因材施教”的数字化落地。
+智慧伴学 EduMate 是一个面向学生、教师和管理员的智能学习平台。系统以 Python 程序设计课程为核心场景，整合知识图谱、学习资源生成、AI 学习对话、代码沙箱、掌握度评估、教师课程建设、管理员课程审核和数字人导学等功能。
 
----
+平台后端基于 FastAPI，前端基于 React + Vite + TypeScript。多智能体链路围绕学习画像、路径规划、资源生成、苏格拉底式引导、资源审核和掌握度评估展开，支持接入 DeepSeek 大模型、讯飞语音合成和 Neo4j 知识图谱；在外部服务不可用时，可使用本地内存图谱与降级逻辑保证基础演示可运行。
 
-## 核心亮点
+## 核心功能
 
-1. **神经符号认知架构（Neuro-Symbolic）**  
-   Neo4j 知识图谱为生成提供硬约束：前置知识、难度等级、易错点、禁用知识点，生成后通过 AST 校验防止“超纲”与幻觉。
-
-2. **5 角色分层 + Society of Mind 辩论议会**  
-   Orchestrator / Profiler / Navigator / Generator / Reviewer 五个执行角色通过统一消息总线协作；Reviewer 内部保留 Expert / Teacher / Student-Sim / Guardian 四个审核视角 Prompt 议会，投票通过后方可输出。
-
-3. **认知风格自适应渲染引擎**  
-   同一资源根据学生的场依存/独立、视觉/听觉/动觉偏好，呈现不同 UI 形态。
-
-4. **Pyodide 浏览器 Python 沙箱**  
-   代码实时运行、零网络延迟，Demo 体验极佳。
-
-5. **构建与缓存优化**  
-   - 后端 `resource_cache` 按 `(concept, profile_hash)` 缓存已审核资源，重复生成从 ~3s 降至 ~0.02s。
-   - 前端 `KnowledgeGraph`、`PyodideSandbox`、`ResourceViewer` 使用 React.lazy 懒加载，`index` 主 chunk 从 465KB 降至 ~98KB。
-
----
-
-## Agent 架构（5 角色分层）
-
-```
-User ──► Orchestrator ──► Profiler ──► Navigator ──► Generator ──► Reviewer
-                              ▲                                    │
-                              └────────── 学习事件反馈 ──────────────┘
-```
-
-| 角色 | 职责 | 备注 |
-|------|------|------|
-| **Orchestrator** | 意图识别、会话状态维护、按 SOP 路由消息 | 对外保持 `handle_chat` / `generate_resource` 等接口稳定 |
-| **Profiler** | 解析学生输入，更新认知画像 | 输出视觉/听觉/动觉、场依存/独立等维度 |
-| **Navigator** | 基于知识图谱规划学习路径 | 推荐前置/当前/后续知识点 |
-| **Generator** | 生成个性化教学资源包 | 含讲义、示例、练习、代码题 |
-| **Reviewer** | 资源审核、苏格拉底辅导、学习评估 | 内部 4-Prompt 辩论议会 + BKT 评估 |
-
-所有 Agent 通过 `AgentMessage` 协议通信，便于后续迁移至 LangGraph / AutoGen 等框架。
-
----
+- 课程广场：登录、注册、角色入口、课程筛选与课程进入。
+- 学生学习工作台：知识图谱、学习资源、学习对话、代码沙箱、掌握进度、学习画像。
+- 知识图谱：展示课程知识点关系、路径终点、节点详情、动态路径与节点资源生成入口。
+- 学习资源：讲义、导图、练习题、代码案例、视频讲解、听觉型讲解、审核报告与资源反馈。
+- 学习对话：面向学习问题的 AI 辅导、苏格拉底式追问、学习画像联动与 Agent 状态展示。
+- 代码沙箱：运行 Python 示例代码，展示输出与变量快照，并支持练习题判题。
+- 掌握进度：基于学习行为和练习结果展示掌握度、热力图和学习建议。
+- 教师端：创建课程、维护课程资料、提交课程发布审核、删除本人课程。
+- 管理端：审核教师提交的课程，管理课程发布状态、学生和教师用户。
+- 数字人导学：课程广场和课程内均保留数字人入口，用于页面使用引导和学习辅助。
 
 ## 技术栈
 
 | 层级 | 技术 |
-|------|------|
-| 前端 | React 18 + Vite + TypeScript + Tailwind CSS + shadcn/ui + Monaco Editor + Pyodide |
-| 后端 | FastAPI + Python 3.10+ |
-| 大模型 | DeepSeek-V2 / 讯飞星火 4.0 / Mock（可切换） |
-| 多智能体 | 自定义 Agent Orchestrator（5 角色消息总线）+ Reviewer 内部 4-Prompt 辩论议会 |
-| 知识图谱 | Neo4j Community / 内存图（无 Docker 自动降级） |
-| 数据库 | SQLite（用户、会话、学习记录、资源缓存） |
-| 认证 | JWT + bcrypt |
-| 性能优化 | SQLite 资源缓存、前端组件懒加载 |
-| 部署 | Docker Compose / 本地开发 |
-
----
+| --- | --- |
+| 前端 | React 18、Vite、TypeScript、Tailwind CSS、Framer Motion、Monaco Editor、Mermaid、ECharts |
+| 后端 | FastAPI、Python 3.11、Pydantic、SQLite、JWT、bcrypt |
+| 多智能体 | Orchestrator、Profiler、Navigator、Generator、Reviewer、Socrates |
+| 大模型 | DeepSeek API，保留讯飞星火配置入口，支持 mock/auto 降级 |
+| 语音合成 | 讯飞 TTS，浏览器语音作为前端降级 |
+| 知识图谱 | 内存图谱默认可用，可选 Neo4j |
+| 部署 | 本地启动脚本、Conda、Docker Compose |
 
 ## 快速启动
 
-### 方式一：Docker Compose 一键启动（推荐，用于比赛交付）
+推荐使用当前项目约定端口：
 
-```bash
-cp backend/.env.example backend/.env
-# 编辑 backend/.env，填入你的讯飞 API Key
-docker-compose up --build
+- 后端：`http://127.0.0.1:8001`
+- 前端：`http://127.0.0.1:5173`
+- 前端代理：`/api` 和 `/health` 均转发到后端 `8001`
+
+### 方式一：Windows 本地启动
+
+后端：
+
+```powershell
+cd I:\project\rjb\RJBRJB
+copy backend\.env.example backend\.env
+# 编辑 backend\.env，填入 DeepSeek 和讯飞 TTS 配置；不填也可用部分降级能力
+powershell -ExecutionPolicy Bypass -File .\scripts\start_backend.ps1
 ```
 
-访问：http://localhost:5173
+前端：
 
-### 方式二：本地开发
-
-#### 1. 启动 Neo4j（可选，未启动时自动使用内存图）
-
-```bash
-docker run -d \
-  --name eduhive-neo4j \
-  -p 7474:7474 -p 7687:7687 \
-  -e NEO4J_AUTH=neo4j/eduhive123 \
-  neo4j:5.15-community
+```powershell
+cd I:\project\rjb\RJBRJB
+powershell -ExecutionPolicy Bypass -File .\scripts\start_frontend.ps1
 ```
 
-#### 2. 启动后端
+访问：
 
-```bash
-cd backend
-copy .env.example .env
-# 编辑 .env，填入 DEEPSEEK_API_KEY 或讯飞相关 Key
-python -m venv venv
-venv\Scripts\activate  # Windows
-pip install -r requirements.txt
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```text
+http://127.0.0.1:5173/#/portal
 ```
 
-#### 3. 启动前端
+### 方式二：手动启动
 
-```bash
-cd frontend
+后端：
+
+```powershell
+cd I:\project\rjb\RJBRJB\backend
+..\.conda\python.exe -m pip install -r requirements.txt
+..\.conda\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload
+```
+
+前端：
+
+```powershell
+cd I:\project\rjb\RJBRJB\frontend
 npm install
-npm run dev
+npm run dev -- --host 127.0.0.1 --port 5173
 ```
 
----
+### 方式三：Docker Compose
 
-## 主要 API 接口
+```powershell
+cd I:\project\rjb\RJBRJB
+copy backend\.env.example backend\.env
+docker compose up --build
+```
+
+访问：
+
+```text
+http://127.0.0.1:5173/#/portal
+```
+
+## 主要 API
 
 | 接口 | 说明 |
-|------|------|
-| `GET /health` | 健康检查 |
-| `GET /health/detail` | 服务与数据库统计 |
+| --- | --- |
+| `GET /health` | 后端基础健康检查 |
+| `GET /health/detail` | 服务、数据库、图谱与缓存统计 |
 | `POST /api/auth/register` | 用户注册 |
-| `POST /api/auth/login` | 用户登录，返回 JWT |
-| `POST /api/sessions/` | 创建学习会话（可选 Bearer Token） |
-| `GET /api/sessions/` | 获取当前用户会话列表 |
-| `POST /api/sessions/{id}/chat` | 同步对话 |
-| `GET /api/sessions/{id}/chat-stream` | SSE 流式对话 |
-| `POST /api/sessions/{id}/events` | 提交学习事件 |
-| `POST /api/sessions/{id}/evaluate` | 学习效果评估 |
-| `POST /api/resources/generate` | 同步生成资源 |
-| `GET /api/resources/stream-generate` | SSE 流式生成资源 |
-| `POST /api/code/execute` | Python 代码执行 |
-| `POST /api/code/judge` | 代码判题 |
-| `GET /api/graph/` | 知识图谱数据 |
+| `POST /api/auth/login` | 用户登录 |
+| `POST /api/sessions/` | 创建学习会话 |
+| `POST /api/sessions/{id}/chat` | 学习对话 |
+| `POST /api/sessions/{id}/events` | 记录学习行为 |
+| `POST /api/resources/generate` | 生成学习资源 |
+| `GET /api/resources/stream-generate` | 流式生成学习资源 |
+| `POST /api/code/execute` | 执行 Python 代码 |
+| `POST /api/code/judge` | 练习题判题 |
+| `GET /api/graph/` | 获取知识图谱 |
+| `GET /api/graph/concept/{concept}` | 获取知识点详情 |
+| `GET /api/evaluation/*` | 掌握度与学习评估 |
+| `GET /api/learning-plan/*` | 学习计划与学习时长 |
+| `GET /api/teacher/*` | 教师课程管理 |
+| `GET /api/admin/*` | 管理端课程和用户管理 |
+| `GET /api/assistant/*` | 数字人助教 |
+| `GET /api/tts/status` | 讯飞 TTS 配置状态 |
+| `POST /api/tts/synthesize` | 文本转语音 |
 
-## 测试
+## 验证命令
 
-后端一键测试（11 个脚本）：
+后端导入检查：
 
-```bash
-cd backend
-.\venv\Scripts\python.exe run_tests.py
+```powershell
+cd I:\project\rjb\RJBRJB\backend
+..\.conda\python.exe -m py_compile app\main.py
 ```
 
-前端构建验证：
+后端接口检查：
 
-```bash
-cd frontend
+```powershell
+Invoke-RestMethod -Uri "http://127.0.0.1:8001/health/detail"
+Invoke-RestMethod -Uri "http://127.0.0.1:8001/api/tts/status"
+```
+
+前端构建检查：
+
+```powershell
+cd I:\project\rjb\RJBRJB\frontend
 npm run build
 ```
 
----
-
 ## 项目结构
 
-```
-RJB_Demo/
-├── backend/                 # FastAPI 后端
-│   ├── app/
-│   │   ├── agents/          # 多智能体实现
-│   │   │   ├── generator.py       # GeneratorAgent（原 BuilderAgent）
-│   │   │   ├── reviewer/          # ReviewerAgent（含 debate / socrates / evaluator）
-│   │   │   └── orchestrator.py    # 5 角色消息路由编排
-│   │   ├── api/             # RESTful API
-│   │   ├── core/            # 配置、安全
-│   │   ├── middleware/      # 请求日志中间件
-│   │   ├── models/          # Pydantic 数据模型
-│   │   └── services/        # 业务服务（LLM、Neo4j、SQLite、缓存）
-│   └── *.py                 # 测试脚本
-├── frontend/                # React 前端
-│   └── src/
-│       ├── components/      # 组件库
-│       ├── pages/           # 页面
-│       ├── hooks/           # 自定义 Hooks
-│       ├── services/        # API 服务
-│       ├── stores/          # Zustand 状态管理
-│       └── types/           # TypeScript 类型
-├── data/                    # 知识图谱种子数据
-├── docs/                    # 比赛文档
-├── docker-compose.yml
-└── README.md
+```text
+RJBRJB/
+├─ backend/                 FastAPI 后端、多智能体、数据库、TTS、图谱服务
+├─ frontend/                React 前端、课程广场、学生端、教师端、管理端
+├─ data/                    知识图谱种子数据
+├─ docs/                    设计文档、接口说明、测试报告、更新报告
+├─ scripts/                 Windows 本地启动脚本
+├─ docker-compose.yml       容器化启动配置
+├─ environment.yml          Conda 环境配置
+├─ SETUP.md                 环境搭建说明
+└─ README.md                项目总览
 ```
 
----
+## 提交注意事项
 
-## 讯飞工具使用说明
+可以提交源码、配置模板、依赖清单、文档、脚本、静态展示素材和示例数据。不要提交真实密钥、本机虚拟环境、`node_modules`、构建产物、运行数据库、日志和临时测试音频。
 
-| 工具 | 用途 | 说明 |
-|------|------|------|
-| 讯飞星火 4.5 Max | 主推理模型 | 资源生成、路径规划、辩论判断 |
-| 讯飞星火 Spark Pro | 辅助模型 | 意图识别、快速问答 |
-| 讯飞语音合成 TTS | 语音讲解 | 知识点音频讲解 |
-| 讯飞 iFlyCode | 代码辅助 | 实操案例代码生成辅助 |
-
----
-
-## 开源组件与协议
-
-| 组件 | 协议 | 用途 |
-|------|------|------|
-| AutoGen | MIT | 多智能体框架 |
-| FastAPI | MIT | Web 框架 |
-| Neo4j Community | GPL v3 | 知识图谱 |
-| Pyodide | MPL 2.0 | 浏览器 Python 执行 |
-| Monaco Editor | MIT | 代码编辑器 |
-| Mermaid.js | MIT | 思维导图渲染 |
-| React | MIT | 前端框架 |
-| shadcn/ui | MIT | UI 组件库 |
-
----
-
-## 团队与版本
-
-- 团队：智学蜂巢项目组
-- 版本：v1.0
-- 赛事：第十五届中国软件杯大赛 A组
+真实密钥只应写入本机 `backend/.env`，仓库中只保留 `backend/.env.example`。

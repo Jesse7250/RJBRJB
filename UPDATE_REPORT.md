@@ -44,10 +44,10 @@
 
 ## 运行建议
 
-由于本地 `localhost:8000` 上可能存在较早启动的后端进程，建议手动重启后端以完全加载本次超时与审核降级优化：
+由于本地 `localhost:8001` 上可能存在较早启动的后端进程，建议手动重启后端以完全加载本次超时与审核降级优化：
 
 ```powershell
 cd D:\Gitproject\RJB_Demo\backend
 $env:LLM_PROVIDER="mock"
-venv\Scripts\python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+venv\Scripts\python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8001
 ```

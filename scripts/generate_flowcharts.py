@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Generate publication-quality vector flowcharts for the EduHive design document.
+Generate publication-quality vector flowcharts for the EduMate design document.
 Backend: Python (matplotlib). Outputs SVG/PDF/PNG to docs/figures/.
 """
 import matplotlib

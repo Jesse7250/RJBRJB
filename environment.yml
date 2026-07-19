@@ -1,5 +1,6 @@
-name: eduhive-rjb
+name: edumate-rjb
 channels:
+  - conda-forge
   - defaults
 dependencies:
   - python=3.11

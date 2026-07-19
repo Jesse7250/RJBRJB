@@ -63,16 +63,16 @@ class Settings(BaseSettings):
     # Neo4j 配置
     NEO4J_URI: str = "bolt://localhost:7687"
     NEO4J_USER: str = "neo4j"
-    NEO4J_PASSWORD: str = "eduhive123"
+    NEO4J_PASSWORD: str = "edumate123"
 
     # SQLite 配置
-    DATABASE_URL: str = "sqlite:///./eduhive.db"
+    DATABASE_URL: str = "sqlite:///./edumate.db"
 
     # 资源缓存 TTL（小时）
     RESOURCE_CACHE_TTL_HOURS: int = 168
 
     # 应用配置
-    SECRET_KEY: str = "eduhive-secret-key-change-in-production"
+    SECRET_KEY: str = "edumate-secret-key-change-in-production"
     DEBUG: bool = True
     CORS_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
 

@@ -1,4 +1,4 @@
-# 智学蜂巢 EduHive — RJBRJB 端到端测试报告
+# 智慧伴学 EduMate — RJBRJB 端到端测试报告
 
 - **测试日期**：2026-07-15
 - **测试仓库**：`Jesse7250/RJBRJB`（本地路径 `D:\Gitproject\RJBRJB`）

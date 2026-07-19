@@ -1,4 +1,4 @@
-# EduHive Frontend Command Center Update Report
+# EduMate Frontend Command Center Update Report
 
 **Date**: 2026-07-02  
 **Branch**: `feature/frontend-command-center`  
@@ -9,7 +9,7 @@
 
 ## 1. Summary
 
-This update rebuilds the frontend into a multi-page EduHive command center and strengthens the main demo flow:
+This update rebuilds the frontend into a multi-page EduMate command center and strengthens the main demo flow:
 
 `learning profile -> knowledge graph -> learning resources -> learning dialogue -> code sandbox -> mastery progress`
 

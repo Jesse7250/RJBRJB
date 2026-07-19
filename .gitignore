@@ -35,6 +35,8 @@ backend/.env
 
 # Databases & logs
 backend/eduhive.db
+backend/edumate.db
+backend/.tmp/
 *.db
 *.log
 
@@ -62,6 +64,7 @@ Thumbs.db
 ~$*.pptx
 
 # Test artifacts
+backend/.pytest_cache/
 backend/ablation_report.json
 backend/tmp_inspect_code.py
 backend/tts-test*.mp3

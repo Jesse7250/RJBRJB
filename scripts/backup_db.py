@@ -54,7 +54,7 @@ def restore(db_path: Path, backup_path: Path) -> Path:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="EduHive SQLite 数据库备份/恢复")
+    parser = argparse.ArgumentParser(description="EduMate SQLite 数据库备份/恢复")
     sub = parser.add_subparsers(dest="command", required=True)
 
     backup_parser = sub.add_parser("backup", help="备份数据库")

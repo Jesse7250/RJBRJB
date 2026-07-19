@@ -1,7 +1,7 @@
 """
 generate_engineering_figures.py
 ================================
-按软件工程/学术论文规范重新绘制 EduHive 设计文档配图（v2 风格统一版）。
+按软件工程/学术论文规范重新绘制 EduMate 设计文档配图（v2 风格统一版）。
 
 输出：
   docs/images/fig{1..16}-*.svg  （可编辑矢量）
@@ -346,9 +346,9 @@ def fig1_application_scenarios():
     hub = Circle((50, 50), 11, facecolor=PALETTE["primary"],
                  edgecolor=PALETTE["text"], linewidth=2, clip_on=False)
     ax.add_patch(hub)
-    ax.text(50, 52, "智学蜂巢", ha="center", va="center",
+    ax.text(50, 52, "智慧伴学", ha="center", va="center",
             fontsize=12, color=PALETTE["white"], weight="bold")
-    ax.text(50, 48, "EduHive", ha="center", va="center",
+    ax.text(50, 48, "EduMate", ha="center", va="center",
             fontsize=10, color=PALETTE["white"])
 
     # 四个场景卡片：标题 + 3 条价值点
@@ -385,7 +385,7 @@ def fig1_application_scenarios():
     arrow(ax, (88, 55), (88, 73), color=PALETTE["neutral"], lw=1)
     arrow(ax, (88, 45), (88, 42), color=PALETTE["neutral"], lw=1)
 
-    set_title(ax, "图 1：智学蜂巢应用场景示意图")
+    set_title(ax, "图 1：智慧伴学应用场景示意图")
     save(fig, "fig1-application-scenarios")
 
 
@@ -885,7 +885,7 @@ def fig16_learning_dfd():
     external_entity(ax, (4, 16), 12, 9, "教师", fontsize=9)
 
     # 处理过程：左上 / 左下 / 右上 / 右下
-    process_box(ax, (24, 72), 18, 11, "EduHive\n学习会话处理", fontsize=8)
+    process_box(ax, (24, 72), 18, 11, "EduMate\n学习会话处理", fontsize=8)
     process_box(ax, (24, 36), 18, 11, "画像与路径\n推理", fontsize=8)
     process_box(ax, (54, 72), 18, 11, "资源生成\n与审核", fontsize=8)
     process_box(ax, (54, 36), 18, 11, "评估与\n知识熔炉", fontsize=8)

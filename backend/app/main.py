@@ -91,7 +91,7 @@ app.include_router(tts.router, prefix="/api/tts", tags=["语音合成"])
 
 @app.get("/health")
 async def health_check():
-    return {"status": "ok", "service": "eduhive-backend"}
+    return {"status": "ok", "service": "edumate-backend"}
 
 
 @app.get("/health/detail")
@@ -120,7 +120,7 @@ async def health_detail():
 
     return {
         "status": "ok",
-        "service": "eduhive-backend",
+        "service": "edumate-backend",
         "llm_provider": settings.LLM_PROVIDER,
         "graph_backend": settings.GRAPH_BACKEND,
         "database_stats": {

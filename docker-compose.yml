@@ -3,12 +3,12 @@ version: '3.8'
 services:
   neo4j:
     image: neo4j:5.15-community
-    container_name: eduhive-neo4j
+    container_name: edumate-neo4j
     ports:
       - "7474:7474"
       - "7687:7687"
     environment:
-      - NEO4J_AUTH=neo4j/eduhive123
+      - NEO4J_AUTH=neo4j/edumate123
       - NEO4J_PLUGINS=["apoc"]
     volumes:
       - neo4j_data:/data
@@ -18,14 +18,14 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: eduhive-backend
+    container_name: edumate-backend
     ports:
-      - "8000:8000"
+      - "8001:8001"
     environment:
       - NEO4J_URI=bolt://neo4j:7687
       - NEO4J_USER=neo4j
-      - NEO4J_PASSWORD=eduhive123
-      - DATABASE_URL=sqlite:///./eduhive.db
+      - NEO4J_PASSWORD=edumate123
+      - DATABASE_URL=sqlite:///./edumate.db
     env_file:
       - ./backend/.env
     volumes:
@@ -33,20 +33,20 @@ services:
       - backend_data:/app/data
     depends_on:
       - neo4j
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: eduhive-frontend
+    container_name: edumate-frontend
     ports:
       - "5173:5173"
     volumes:
       - ./frontend:/app
       - /app/node_modules
     environment:
-      - VITE_API_URL=http://localhost:8000
+      - VITE_API_URL=http://backend:8001
     depends_on:
       - backend
     command: npm run dev -- --host

@@ -68,7 +68,7 @@ content = "\n".join(out)
 
 table = """| 图号 | 文件位置（相对 `docs/`） | 类型 | 内容说明 | 对应章节 | 来源/制作方式 |
 |------|------------------------|------|---------|---------|--------------|
-| 图 1 | `images/fig1-application-scenarios.png` | 示意图 | 智学蜂巢应用场景示意图（课后自主学习、翻转课堂、考前巩固、教师学情分析） | 1.1 | `scripts/generate_design_figures.py` |
+| 图 1 | `images/fig1-application-scenarios.png` | 示意图 | 智慧伴学应用场景示意图（课后自主学习、翻转课堂、考前巩固、教师学情分析） | 1.1 | `scripts/generate_design_figures.py` |
 | 图 2 | `images/fig2-overall-loop.png` | 示意图 | 系统总体数据闭环 | 2.1 | `scripts/generate_design_figures.py` |
 | 图 3 | `figures/fig3-system-architecture.png` | 架构图 | 系统总体五层架构（高清版） | 2.2 | `scripts/generate_design_figures.py` / `scripts/generate_flowcharts.py` |
 | 图 4 | `figures/fig4-agent-architecture.png` | 架构图 | 5 角色多智能体协同架构（高清版） | 2.3 | `scripts/generate_design_figures.py` / `scripts/generate_flowcharts.py` |

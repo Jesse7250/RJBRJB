@@ -1,5 +1,5 @@
 """
-使用 Python / matplotlib 生成智学蜂巢设计文档的 3 张 Nature-style 预览图：
+使用 Python / matplotlib 生成智慧伴学设计文档的 3 张 Nature-style 预览图：
 - fig23: 性能对比柱状图
 - fig24: 竞争优势雷达图
 - fig1:  应用场景信息图
@@ -135,7 +135,7 @@ def make_fig24():
     angles += angles[:1]
 
     data = {
-        "智学蜂巢": ([4.8, 4.5, 4.6, 4.7, 4.4, 4.3], PALETTE["blue_main"]),
+        "智慧伴学": ([4.8, 4.5, 4.6, 4.7, 4.4, 4.3], PALETTE["blue_main"]),
         "传统 LMS": ([2.0, 3.5, 3.0, 1.5, 3.0, 2.5], PALETTE["neutral_mid"]),
         "单一 LLM": ([3.5, 2.5, 1.5, 2.0, 3.5, 3.0], PALETTE["red_strong"]),
         "知识图谱系统": ([2.5, 4.0, 3.5, 2.0, 2.5, 3.0], PALETTE["green_3"]),
@@ -148,8 +148,8 @@ def make_fig24():
 
     for name, (values, color) in data.items():
         values = values + values[:1]
-        lw = 2.5 if name == "智学蜂巢" else 1.2
-        alpha = 0.18 if name == "智学蜂巢" else 0.08
+        lw = 2.5 if name == "智慧伴学" else 1.2
+        alpha = 0.18 if name == "智慧伴学" else 0.08
         ax.plot(angles, values, color=color, linewidth=lw, label=name)
         ax.fill(angles, values, color=color, alpha=alpha)
 
@@ -161,7 +161,7 @@ def make_fig24():
     ax.grid(linewidth=0.5, color=PALETTE["neutral_light"])
 
     ax.legend(loc="upper right", bbox_to_anchor=(1.35, 1.1), fontsize=8)
-    ax.set_title("图 24  智学蜂巢与现有方案竞争优势对比", fontsize=12, fontweight="bold", y=1.08)
+    ax.set_title("图 24  智慧伴学与现有方案竞争优势对比", fontsize=12, fontweight="bold", y=1.08)
 
     finalize(fig, "fig24_competitive_radar")
 
@@ -186,7 +186,7 @@ def draw_panel_title(ax, title, color):
 def make_fig1():
     fig = plt.figure(figsize=(14, 10))
     fig.patch.set_facecolor("white")
-    fig.text(0.5, 0.97, "图 1  智学蜂巢应用场景与数据价值示意",
+    fig.text(0.5, 0.97, "图 1  智慧伴学应用场景与数据价值示意",
              ha="center", va="top", fontsize=15, fontweight="bold", color=PALETTE["neutral_dark"])
 
     # 四象限 axes
@@ -205,9 +205,9 @@ def make_fig1():
                                 boxstyle="round,pad=0.02,rounding_size=0.06",
                                 facecolor=PALETTE["blue_main"], edgecolor=PALETTE["gold"], linewidth=2.5)
     ax_center.add_patch(center_box)
-    ax_center.text(0.5, 0.62, "智学蜂巢", ha="center", va="center",
+    ax_center.text(0.5, 0.62, "智慧伴学", ha="center", va="center",
                    fontsize=14, fontweight="bold", color="white")
-    ax_center.text(0.5, 0.40, "EduHive", ha="center", va="center",
+    ax_center.text(0.5, 0.40, "EduMate", ha="center", va="center",
                    fontsize=11, color="white", style="italic")
     ax_center.text(0.5, 0.22, "33 知识点 · 5 Agent · 4 审核视角", ha="center", va="center",
                    fontsize=8, color=PALETTE["neutral_light"])
