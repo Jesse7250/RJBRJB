@@ -45,9 +45,9 @@
 
 ### 方式零：双击启动
 
-Windows 环境下可直接双击根目录的 `启动项目.bat`。
+Windows 环境下可直接双击根目录的 `Launch_EduMate.bat` 或 `启动项目.bat`。
 
-该脚本会自动检查 Node.js、npm 与 Python，安装前后端依赖，创建 `backend\.env`，并分别启动后端和前端。若未填写真实 API Key，脚本会使用 `mock` 大模型与内存知识图谱启动基础演示流程；如需真实 DeepSeek 与讯飞 TTS，请先编辑 `backend\.env` 后再启动。
+该脚本会自动检查 Node.js、npm 与 Python，安装前后端依赖，创建 `backend\.env`，分别启动后端和前端，并在前端就绪后自动打开浏览器。若未填写真实 API Key，脚本会使用 `mock` 大模型与内存知识图谱启动基础演示流程；如需真实 DeepSeek 与讯飞 TTS，请先编辑 `backend\.env` 后再启动。
 
 ### 方式一：Windows 本地启动
 

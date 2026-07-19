@@ -91,7 +91,30 @@ Start-Process powershell.exe -ArgumentList @(
 
 Write-Host ""
 Write-Host "Startup commands were launched." -ForegroundColor Green
-Write-Host "Wait until the frontend window shows VITE ready, then open:" -ForegroundColor Green
-Write-Host "http://127.0.0.1:5173/#/portal" -ForegroundColor Green
+Write-Host "Waiting for the frontend dev server..." -ForegroundColor Green
+
+$PortalUrl = "http://127.0.0.1:5173/#/portal"
+$HealthUrl = "http://127.0.0.1:5173/"
+$Opened = $false
+
+for ($i = 1; $i -le 60; $i++) {
+  try {
+    $response = Invoke-WebRequest -UseBasicParsing -Uri $HealthUrl -TimeoutSec 2
+    if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 500) {
+      Start-Process $PortalUrl
+      Write-Host "Browser opened: $PortalUrl" -ForegroundColor Green
+      $Opened = $true
+      break
+    }
+  } catch {
+    Start-Sleep -Seconds 2
+  }
+}
+
+if (-not $Opened) {
+  Write-Host "Frontend is still starting. Please open this URL manually after VITE ready:" -ForegroundColor Yellow
+  Write-Host $PortalUrl -ForegroundColor Yellow
+}
+
 Write-Host ""
 Write-Host "If ports are already in use, close old uvicorn/vite processes and run again."

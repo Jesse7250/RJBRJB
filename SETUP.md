@@ -34,7 +34,7 @@ git pull --ff-only origin feature/full-project-sync-20260714
 
 ### 3.0 双击一键启动
 
-Windows 环境下可在项目根目录直接双击 `启动项目.bat`。
+Windows 环境下可在项目根目录直接双击 `Launch_EduMate.bat` 或 `启动项目.bat`。
 
 脚本会自动执行以下步骤：
 
@@ -43,6 +43,7 @@ Windows 环境下可在项目根目录直接双击 `启动项目.bat`。
 - 未配置真实 API Key 时，自动使用 `mock` 大模型和内存知识图谱启动基础演示。
 - 安装后端和前端依赖。
 - 分别启动后端 `8001` 与前端 `5173`。
+- 前端就绪后自动打开浏览器进入课程广场。
 
 如需使用真实 DeepSeek 与讯飞 TTS，请先编辑 `backend\.env` 后重新启动。
 
