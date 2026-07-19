@@ -93,6 +93,8 @@ npm run dev -- --host 127.0.0.1 --port 5173
 
 ### 方式三：Docker Compose
 
+`Dockerfile` 和 `docker-compose.yml` 用于提供容器化部署方式。安装 Docker Desktop 后，可通过 Docker Compose 一次性启动前端、后端和 Neo4j，减少手动配置 Python、Node.js 与图数据库环境的工作量。
+
 ```powershell
 cd I:\project\rjb\RJBRJB
 copy backend\.env.example backend\.env

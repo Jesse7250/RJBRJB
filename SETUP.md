@@ -127,6 +127,8 @@ http://127.0.0.1:5173/#/portal
 
 Docker Compose 会同时启动 Neo4j、后端和前端。
 
+`Dockerfile` 描述单个服务的构建方式，`docker-compose.yml` 描述前端、后端和 Neo4j 如何一起启动。安装 Docker Desktop 后，可以用这一方式减少手动配置 Python、Node.js 与图数据库环境的步骤。
+
 ```powershell
 cd I:\project\rjb\RJBRJB
 copy backend\.env.example backend\.env
