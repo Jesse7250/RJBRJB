@@ -447,7 +447,7 @@ export function ResourceLibraryPanel({
             {/* 数字人预览：即使没资源也能看到 */}
             <div className="mt-4 w-full max-w-sm rounded-2xl border border-amber-200/60 bg-amber-50/30 p-4">
               <p className="mb-3 text-center text-xs font-bold text-amber-700">数字人教师预览</p>
-              <DigitalHuman text="你好！我是智学蜂巢的数字人教师。生成学习资源后，我会为你朗读讲解内容。" concept={selectedConcept} />
+              <DigitalHuman text="你好！我是智慧伴学的数字人教师。生成学习资源后，我会为你朗读讲解内容。" concept={selectedConcept} />
             </div>
           </div>
         )}

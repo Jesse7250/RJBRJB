@@ -78,7 +78,7 @@ export function ChatPanel({ session }: Props) {
     {
       role: 'assistant',
       content:
-        '你好！我是智学蜂巢学习助手。告诉我你想学习哪个 Python 知识点，或者让我为你规划一条学习路径。',
+        '你好！我是智慧伴学学习助手。告诉我你想学习哪个 Python 知识点，或者让我为你规划一条学习路径。',
       agentName: 'Profiler',
     },
   ])

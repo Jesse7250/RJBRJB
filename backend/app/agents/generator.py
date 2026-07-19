@@ -1,4 +1,4 @@
-﻿"""Generator Agent：多模态学习资源生成
+"""Generator Agent：多模态学习资源生成
 
 对应需求/功能：
 - 根据学生画像与知识图谱约束，生成个性化 Python 教学资源包。
@@ -125,7 +125,7 @@ class GeneratorAgent(BaseAgent):
             audio_text=self._unescape_text(
                 parsed.get(
                     "audio_text",
-                    f"欢迎来到智学蜂巢。本节我们学习「{concept}」。{concept_info.get('description', '')}",
+                    f"欢迎来到智慧伴学。本节我们学习「{concept}」。{concept_info.get('description', '')}",
                 )
             ),
         )

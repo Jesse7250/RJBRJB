@@ -172,7 +172,7 @@ const COURSE_CATALOG: CourseCard[] = [
     title: 'Python 程序设计基础',
     category: '程序设计',
     level: '入门到进阶',
-    teacher: '智学蜂巢教研组',
+    teacher: '智慧伴学教研组',
     duration: '6 个模块',
     status: 'ready',
     accent: 'teal',
@@ -278,19 +278,19 @@ with open(file_path, 'r', encoding='utf-8') as f:
         print(f'{i}: {line.strip()}')`
 
 const SAMPLE_OUTPUT = `文件内容:
-Hello, EduHive!
+Hello, EduMate!
 今天学习 Python 文件操作。
 继续加油!
 
 按行读取:
-1: Hello, EduHive!
+1: Hello, EduMate!
 2: 今天学习 Python 文件操作。
 3: 继续加油!`
 
 const SAMPLE_VARIABLES: CodeVariable[] = [
   { name: 'file_path', type: 'str', value: "'sample.txt'", size: 10 },
-  { name: 'content', type: 'str', value: "'Hello, EduHive!\\n今天学习 Python 文件操作。\\n继续加油!'", size: 39 },
-  { name: 'lines', type: 'list', value: "['Hello, EduHive!\\n', '今天学习 Python 文件操作。\\n', '继续加油!']", size: 3 },
+  { name: 'content', type: 'str', value: "'Hello, EduMate!\\n今天学习 Python 文件操作。\\n继续加油!'", size: 39 },
+  { name: 'lines', type: 'list', value: "['Hello, EduMate!\\n', '今天学习 Python 文件操作。\\n', '继续加油!']", size: 3 },
   { name: 'i', type: 'int', value: '3' },
   { name: 'line', type: 'str', value: "'继续加油!'", size: 5 },
 ]
@@ -1995,7 +1995,7 @@ function CoursePortal({
   const portalCopy = {
     student: {
       kicker: 'AI 驱动的个性化课程空间',
-      title: ['选择课程', '进入你的智学蜂巢'],
+      title: ['选择课程', '进入你的智慧伴学'],
       summary: '从目标出发，系统会结合你的学习记录与掌握情况，推荐更适合当前阶段的课程内容。',
       primary: '进入推荐课程',
       secondary: authUser ? '查看学习账户' : '登录后同步学习记录',
@@ -2289,11 +2289,11 @@ function PortalDigitalHuman({
     homeLabel: string
   }> = {
     student: {
-      title: authUser ? '我可以帮你继续学习' : `你好，我是${assistantGender === 'male' ? '小蜂导学助教' : '小蜂导学学姐'}`,
+      title: authUser ? '我可以帮你继续学习' : `你好，我是${assistantGender === 'male' ? '小慧助教' : '小慧学姐'}`,
       body: authUser ? '我可以带你回到已开放课程，也可以帮你重新筛选适合当前阶段的课程。' : '先选择课程，再进入对应学习工作台；登录后可以保留进度和学习记录。',
       guide: authUser
         ? `欢迎回来，${authUser}。我可以帮你继续学习已开放课程，也可以带你查看课程列表。`
-        : '欢迎来到智学蜂巢课程广场。我可以帮你筛选课程、说明学习路径，并在登录后同步你的学习记录与课程进度。',
+        : '欢迎来到智慧伴学课程广场。我可以帮你筛选课程、说明学习路径，并在登录后同步你的学习记录与课程进度。',
       coursesLabel: '找课程',
       accountLabel: authUser ? '账户' : '登录',
       homeLabel: '继续学习',
@@ -2327,9 +2327,9 @@ function PortalDigitalHuman({
       stop()
       return
     }
-    console.log('[EduHive digital human voice]', {
+    console.log('[EduMate digital human voice]', {
       scope: 'course-portal',
-      assistant: assistantGender === 'male' ? '小蜂导学助教' : '小蜂导学学姐',
+      assistant: assistantGender === 'male' ? '小慧助教' : '小慧学姐',
       gender: assistantGender,
       voice: assistantVoice,
       source,
@@ -2349,7 +2349,7 @@ function PortalDigitalHuman({
         {imageReady ? (
           <img
             src={assistantImage}
-            alt={assistantGender === 'male' ? '智学蜂巢男数字人导学助教' : '智学蜂巢女数字人导学助教'}
+            alt={assistantGender === 'male' ? '智慧伴学男数字人导学助教' : '智慧伴学女数字人导学助教'}
             draggable={false}
             onError={() => setImageReady(false)}
           />
@@ -2580,10 +2580,10 @@ function HexBackdrop() {
 function BrandBlock() {
   return (
     <div className="flex items-center gap-4">
-      <img className="brand-mark-image" src="/assets/eduhive-logo-mark.png" alt="智学蜂巢 EduHive 标志" />
+      <img className="brand-mark-image" src="/assets/eduhive-logo-mark.png" alt="智慧伴学 EduMate 标志" />
       <div>
-        <h1 className="text-xl font-black leading-tight text-amber-50">智学蜂巢</h1>
-        <p className="font-mono text-lg font-bold tracking-[0.12em] text-white">EduHive</p>
+        <h1 className="text-xl font-black leading-tight text-amber-50">智慧伴学</h1>
+        <p className="font-mono text-lg font-bold tracking-[0.12em] text-white">EduMate</p>
       </div>
     </div>
   )

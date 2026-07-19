@@ -1,4 +1,4 @@
-﻿"""Python 代码执行器。
+"""Python 代码执行器。
 
 提供轻量级本地沙箱能力：
 - 使用 AST 做基础安全检查；
@@ -106,7 +106,7 @@ class CodeExecutor:
             sample_path = os.path.join(workdir, "sample.txt")
 
             with open(sample_path, "w", encoding="utf-8") as sample_file:
-                sample_file.write("Hello, EduHive!\n今天学习 Python 文件操作。\n继续加油!")
+                sample_file.write("Hello, EduMate!\n今天学习 Python 文件操作。\n继续加油!")
 
             with open(runner_path, "w", encoding="utf-8") as runner_file:
                 runner_file.write(self._build_runner(code, variables_path))

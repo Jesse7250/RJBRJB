@@ -1,4 +1,4 @@
-﻿"""Agent Orchestrator：多智能体编排与路由（5 角色分层版）
+"""Agent Orchestrator：多智能体编排与路由（5 角色分层版）
 
 对应需求/功能：
 - 作为多智能体系统的总调度器，接收用户输入、维护会话状态、按教育 SOP
@@ -323,9 +323,9 @@ class AgentOrchestrator:
         if not user_msg:
             answer = "我在这里。你可以问我课程怎么学、页面怎么用，或者直接说出你卡住的知识点。"
         elif any(w in user_msg for w in ["你是谁", "你叫什么", "介绍一下你"]):
-            answer = "我是小蜂导学，智学蜂巢里的 AI 学习助教。学习问题我会引导你思考，页面操作我会告诉你该点哪里、怎么看。"
+            answer = "我是小慧，智慧伴学里的 AI 学习助教。学习问题我会引导你思考，页面操作我会告诉你该点哪里、怎么看。"
         elif any(w in user_msg for w in ["你好", "您好", "hello", "hi"]):
-            answer = "你好，我是小蜂导学。你可以直接问我知识点、代码报错、学习路径，或者让我解释当前页面怎么用。"
+            answer = "你好，我是小慧。你可以直接问我知识点、代码报错、学习路径，或者让我解释当前页面怎么用。"
         else:
             try:
                 llm = get_llm_provider()
@@ -334,7 +334,7 @@ class AgentOrchestrator:
                         {
                             "role": "system",
                             "content": (
-                                "你是智学蜂巢的 AI 学习助教小蜂导学。"
+                                "你是智慧伴学的 AI 学习助教小慧。"
                                 "请用中文自然回答普通交流问题；如果用户问学习问题，简洁说明并引导他继续描述。"
                                 "不要输出 JSON，不要说你在更新画像。"
                             ),

@@ -23,8 +23,8 @@ export function TopBar({
       <div className="topbar-shell">
         <div className="topbar-title-block">
           <div className="topbar-kicker">
-            <span>智学蜂巢课程工作台</span>
-            <em>EduHive</em>
+            <span>智慧伴学课程工作台</span>
+            <em>EduMate</em>
           </div>
           <div className="topbar-heading-row">
             <h2>{pageTitle}</h2>

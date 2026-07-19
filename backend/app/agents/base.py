@@ -1,7 +1,7 @@
-﻿"""Agent 基类与统一消息协议
+"""Agent 基类与统一消息协议
 
 对应需求/功能：
-- 为智学蜂巢多智能体系统定义统一的 Agent 抽象与消息格式。
+- 为智慧伴学多智能体系统定义统一的 Agent 抽象与消息格式。
 - 所有 Agent（Profiler / Navigator / Generator / Reviewer / Orchestrator）
   通过 AgentMessage 进行通信，便于 Orchestrator 统一路由、状态传递与后续
   接入 LangGraph 等图编排框架。

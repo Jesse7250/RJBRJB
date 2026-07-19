@@ -1,7 +1,7 @@
 """FastAPI 应用入口
 
 对应需求：
-- 初始化智学蜂巢后端应用，注册路由、中间件、CORS 与生命周期管理。
+- 初始化智慧伴学后端应用，注册路由、中间件、CORS 与生命周期管理。
 - 在启动时完成图存储、内存缓存与数据库的初始化。
 
 主要类/函数/接口：
@@ -57,7 +57,7 @@ setup_logging()
 
 settings = get_settings()
 app = FastAPI(
-    title="智学蜂巢 EduHive API",
+    title="智慧伴学 EduMate API",
     description="基于多智能体协同的 Python 个性化学习系统",
     version="1.0.0",
     lifespan=lifespan,

@@ -39,13 +39,13 @@ type AssistantRole = NonNullable<Props['roleContext']>
 
 const ASSISTANT_META: Record<AssistantGender, { name: string; image: string; voice: string; label: string }> = {
   male: {
-    name: '小蜂导学助教',
+    name: '小慧助教',
     image: '/assets/eduhive-portal-assistant-cutout.png',
     voice: 'aisjiuxu',
     label: '男生',
   },
   female: {
-    name: '小蜂导学学姐',
+    name: '小慧学姐',
     image: '/assets/eduhive-portal-assistant-female-cutout.png',
     voice: 'aisjinger',
     label: '女生',
@@ -248,7 +248,7 @@ export function FloatingAssistant({ activeNav, selectedConcept, roleContext = 's
         ttsStop()
         return
       }
-      console.log('[EduHive digital human voice]', {
+      console.log('[EduMate digital human voice]', {
         scope: 'floating-assistant',
         assistant: assistant.name,
         gender: assistantGender,
@@ -547,7 +547,7 @@ export function FloatingAssistant({ activeNav, selectedConcept, roleContext = 's
               <img className={`is-${assistantGender}`} src={assistant.image} alt="" draggable={false} />
             </span>
             <span className="floating-assistant-trigger-copy">
-              <strong>小蜂导学</strong>
+              <strong>小慧</strong>
               <small>点我提问</small>
             </span>
           </button>

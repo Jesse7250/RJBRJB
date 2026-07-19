@@ -1,7 +1,7 @@
-﻿"""DeepSeek API 封装（OpenAI 兼容协议）
+"""DeepSeek API 封装（OpenAI 兼容协议）
 
 对应需求：
-- 为智学蜂巢提供大模型调用能力，支撑教学资源生成、对话辅导等 Agent。
+- 为智慧伴学提供大模型调用能力，支撑教学资源生成、对话辅导等 Agent。
 - 使用 httpx 直接调用 OpenAI 兼容协议，无需官方 SDK，兼容 Python 3.13+。
 
 主要类/函数/接口：
