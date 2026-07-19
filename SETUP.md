@@ -32,6 +32,20 @@ git pull --ff-only origin feature/full-project-sync-20260714
 
 ## 3. 后端配置
 
+### 3.0 双击一键启动
+
+Windows 环境下可在项目根目录直接双击 `启动项目.bat`。
+
+脚本会自动执行以下步骤：
+
+- 检查 Node.js、npm 和 Python。
+- 创建 `backend\.env`。
+- 未配置真实 API Key 时，自动使用 `mock` 大模型和内存知识图谱启动基础演示。
+- 安装后端和前端依赖。
+- 分别启动后端 `8001` 与前端 `5173`。
+
+如需使用真实 DeepSeek 与讯飞 TTS，请先编辑 `backend\.env` 后重新启动。
+
 ### 3.1 准备环境变量
 
 ```powershell
